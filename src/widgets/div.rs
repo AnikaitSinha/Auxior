@@ -1,14 +1,13 @@
 use crate::{Area, Canvas, Cell};
 
+use super::widget::{LayoutOptions, Widget};
+
 #[derive(Debug, Clone, Default)]
 pub struct DivOptions {
     pub border: bool,
     pub title: Option<String>,
     pub padding: u16,
-    pub x: Option<u16>,
-    pub y: Option<u16>,
-    pub width: Option<u16>,
-    pub height: Option<u16>,
+    pub layout: LayoutOptions,
 }
 
 impl DivOptions {
@@ -30,31 +29,11 @@ impl DivOptions {
         self.padding = n;
         self
     }
-
-    pub fn x(mut self, n: u16) -> Self {
-        self.x = Some(n);
-        self
-    }
-
-    pub fn y(mut self, n: u16) -> Self {
-        self.y = Some(n);
-        self
-    }
-
-    pub fn width(mut self, n: u16) -> Self {
-        self.width = Some(n);
-        self
-    }
-
-    pub fn height(mut self, n: u16) -> Self {
-        self.height = Some(n);
-        self
-    }
 }
 
 pub struct Div {
     pub options: DivOptions,
-    pub children: Vec<Div>,
+    pub children: Vec<Box<dyn Widget>>,
 }
 
 impl Div {
@@ -86,44 +65,33 @@ impl Div {
     }
 
     pub fn x(mut self, n: u16) -> Self {
-        self.options.x = Some(n);
+        self.options.layout.x = Some(n);
         self
     }
 
     pub fn y(mut self, n: u16) -> Self {
-        self.options.y = Some(n);
+        self.options.layout.y = Some(n);
         self
     }
 
     pub fn width(mut self, n: u16) -> Self {
-        self.options.width = Some(n);
+        self.options.layout.width = Some(n);
         self
     }
 
     pub fn height(mut self, n: u16) -> Self {
-        self.options.height = Some(n);
+        self.options.layout.height = Some(n);
         self
     }
 
-    pub fn child(mut self, child: Div) -> Self {
-        self.children.push(child);
+    pub fn child(mut self, child: impl Widget + 'static) -> Self {
+        self.children.push(Box::new(child));
         self
     }
 
+    /// Render this div onto the canvas.
     pub fn render(&self, canvas: &mut Canvas) {
-        let width = self
-            .options
-            .width
-            .unwrap_or_else(|| canvas.width())
-            .min(canvas.width());
-        let height = self
-            .options
-            .height
-            .unwrap_or_else(|| canvas.height())
-            .min(canvas.height());
-
-        let mut div_canvas = canvas.subcanvas(0, 0, width, height);
-        self.render_content(&mut div_canvas);
+        <Self as Widget>::render(self, canvas);
     }
 
     fn render_content(&self, canvas: &mut Canvas) {
@@ -135,6 +103,31 @@ impl Div {
 
         let content = content_area(canvas, &self.options);
         render_children(&self.children, canvas, content);
+    }
+}
+
+impl Widget for Div {
+    fn render(&self, canvas: &mut Canvas) {
+        let layout = self.layout();
+        let width = layout
+            .width
+            .unwrap_or_else(|| canvas.width())
+            .min(canvas.width());
+        let height = layout
+            .height
+            .unwrap_or_else(|| canvas.height())
+            .min(canvas.height());
+
+        let mut div_canvas = canvas.subcanvas(0, 0, width, height);
+        self.render_content(&mut div_canvas);
+    }
+
+    fn layout(&self) -> &LayoutOptions {
+        &self.options.layout
+    }
+
+    fn default_height(&self) -> u16 {
+        if self.options.border { 3 } else { 1 }
     }
 }
 
@@ -169,26 +162,19 @@ fn content_area(canvas: &Canvas, options: &DivOptions) -> Area {
     }
 }
 
-fn default_child_height(child: &Div) -> u16 {
-    if child.options.border { 3 } else { 1 }
-}
+fn resolve_child_area(child: &dyn Widget, parent: Area, flow_y: &mut u16) -> Area {
+    let layout = child.layout();
 
-fn resolve_child_area(child: &Div, parent: Area, flow_y: &mut u16) -> Area {
-    let width = child
-        .options
-        .width
-        .unwrap_or(parent.width)
-        .min(parent.width);
+    let width = layout.width.unwrap_or(parent.width).min(parent.width);
 
-    let height = child
-        .options
+    let height = layout
         .height
-        .unwrap_or_else(|| default_child_height(child))
+        .unwrap_or_else(|| child.default_height())
         .min(parent.height);
 
-    let x = parent.x.saturating_add(child.options.x.unwrap_or(0));
+    let x = parent.x.saturating_add(layout.x.unwrap_or(0));
 
-    let y = if let Some(offset_y) = child.options.y {
+    let y = if let Some(offset_y) = layout.y {
         parent.y.saturating_add(offset_y)
     } else {
         let y = *flow_y;
@@ -204,7 +190,7 @@ fn resolve_child_area(child: &Div, parent: Area, flow_y: &mut u16) -> Area {
     }
 }
 
-fn render_children(children: &[Div], canvas: &mut Canvas, area: Area) {
+fn render_children(children: &[Box<dyn Widget>], canvas: &mut Canvas, area: Area) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -212,7 +198,7 @@ fn render_children(children: &[Div], canvas: &mut Canvas, area: Area) {
     let mut flow_y = area.y;
 
     for child in children {
-        let child_area = resolve_child_area(child, area, &mut flow_y);
+        let child_area = resolve_child_area(child.as_ref(), area, &mut flow_y);
 
         if child_area.x >= area.x.saturating_add(area.width)
             || child_area.y >= area.y.saturating_add(area.height)
@@ -237,13 +223,11 @@ fn draw_border(canvas: &mut Canvas, title: Option<&str>) {
         return;
     }
 
-    // corners
     canvas.set(0, 0, Cell::new('┌'));
     canvas.set(w - 1, 0, Cell::new('┐'));
     canvas.set(0, h - 1, Cell::new('└'));
     canvas.set(w - 1, h - 1, Cell::new('┘'));
 
-    // top border, with title carved in
     if let Some(title) = title {
         canvas.set(1, 0, Cell::new(' '));
         for (i, ch) in title.chars().enumerate() {
@@ -263,12 +247,10 @@ fn draw_border(canvas: &mut Canvas, title: Option<&str>) {
         }
     }
 
-    // bottom
     for x in 1..w.saturating_sub(1) {
         canvas.set(x, h - 1, Cell::new('─'));
     }
 
-    // sides
     for y in 1..h.saturating_sub(1) {
         canvas.set(0, y, Cell::new('│'));
         canvas.set(w - 1, y, Cell::new('│'));
@@ -284,11 +266,10 @@ fn draw_title(canvas: &mut Canvas, title: &str) {
     }
 }
 
-// Test cases
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Area, Buffer};
+    use crate::{Area, Buffer, Text};
 
     fn render_div(div: &Div, width: u16, height: u16) -> Buffer {
         let mut buf = Buffer::new(width, height);
@@ -363,7 +344,6 @@ mod tests {
         let div = Div::new().border(true).title("HelloWorld");
         let buf = render_div(&div, 8, 5);
 
-        // only room for: "┌ HelloW" before top-right corner
         assert_eq!(buf.get(2, 0).unwrap().ch, 'H');
         assert_eq!(buf.get(6, 0).unwrap().ch, 'o');
         assert_eq!(buf.get(7, 0).unwrap().ch, '┐');
@@ -381,7 +361,6 @@ mod tests {
         assert_eq!(div.options.title.as_deref(), Some("Settings"));
         assert_eq!(div.options.padding, 1);
         assert_eq!(div.children.len(), 1);
-        assert!(div.children[0].options.border);
     }
 
     #[test]
@@ -399,8 +378,8 @@ mod tests {
 
         let buf = render_div(&div, 20, 10);
 
-        assert_eq!(buf.get(0, 0).unwrap().ch, '┌'); // outer
-        assert_eq!(buf.get(1, 1).unwrap().ch, '┌'); // inner (no padding)
+        assert_eq!(buf.get(0, 0).unwrap().ch, '┌');
+        assert_eq!(buf.get(1, 1).unwrap().ch, '┌');
     }
 
     #[test]
@@ -412,8 +391,8 @@ mod tests {
 
         let buf = render_div(&div, 20, 10);
 
-        assert_eq!(buf.get(0, 0).unwrap().ch, '┌'); // outer
-        assert_eq!(buf.get(2, 2).unwrap().ch, '┌'); // inner pushed in by padding
+        assert_eq!(buf.get(0, 0).unwrap().ch, '┌');
+        assert_eq!(buf.get(2, 2).unwrap().ch, '┌');
     }
 
     #[test]
@@ -459,9 +438,31 @@ mod tests {
     fn layout_builder_sets_options() {
         let div = Div::new().x(1).y(2).width(10).height(5);
 
-        assert_eq!(div.options.x, Some(1));
-        assert_eq!(div.options.y, Some(2));
-        assert_eq!(div.options.width, Some(10));
-        assert_eq!(div.options.height, Some(5));
+        assert_eq!(div.options.layout.x, Some(1));
+        assert_eq!(div.options.layout.y, Some(2));
+        assert_eq!(div.options.layout.width, Some(10));
+        assert_eq!(div.options.layout.height, Some(5));
+    }
+
+    #[test]
+    fn div_renders_text_child() {
+        let div = Div::new().border(true).padding(1).child(Text::new("Hello"));
+
+        let buf = render_div(&div, 20, 10);
+        assert_eq!(buf.get(2, 2).unwrap().ch, 'H');
+        assert_eq!(buf.get(6, 2).unwrap().ch, 'o');
+    }
+
+    #[test]
+    fn div_renders_text_and_div_children() {
+        let div = Div::new()
+            .border(true)
+            .padding(1)
+            .child(Text::new("Title"))
+            .child(Div::new().border(true).width(10).height(3));
+
+        let buf = render_div(&div, 20, 12);
+        assert_eq!(buf.get(2, 2).unwrap().ch, 'T');
+        assert_eq!(buf.get(2, 4).unwrap().ch, '┌');
     }
 }

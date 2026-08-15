@@ -1,4 +1,4 @@
-use auxior::{Area, Canvas, Cell, Div, Terminal};
+use auxior::{Area, Canvas, Cell, Div, Terminal, Text};
 
 fn main() -> std::io::Result<()> {
     let mut terminal = Terminal::new()?;
@@ -20,7 +20,8 @@ fn main() -> std::io::Result<()> {
                     .x(0)
                     .y(0)
                     .width(10)
-                    .height(4),
+                    .height(4)
+                    .child(Text::new("Hello")),
             )
             .child(
                 Div::new()
