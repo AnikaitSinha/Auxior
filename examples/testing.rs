@@ -1,41 +1,34 @@
-use auxior::{Area, Canvas, Cell, Div, Terminal, Text};
+use auxior::{App, Area, Canvas, Cell, ControlFlow, Div, Text};
+use crossterm::style::Color;
 
 fn main() -> std::io::Result<()> {
-    let mut terminal = Terminal::new()?;
+    let mut app = App::new()?;
 
-    terminal.draw(|buf| {
+    app.run(|buf, _events| {
         buf.fill(Cell::empty());
 
         let area = Area::new_from_buffer(buf);
         let mut canvas = Canvas::new(buf, area);
 
-        let ui = Div::new()
+        Div::new()
             .border(true)
             .title("Auxior")
             .padding(1)
+            .child(Text::new("Hello from Auxior!").fg(Color::Green))
             .child(
                 Div::new()
                     .border(true)
                     .title("Panel A")
                     .x(0)
-                    .y(0)
-                    .width(10)
+                    .y(2)
+                    .width(20)
                     .height(4)
-                    .child(Text::new("Hello")),
+                    .child(Text::new("Press q to quit")),
             )
-            .child(
-                Div::new()
-                    .border(true)
-                    .title("Panel B")
-                    .x(0)
-                    .y(4)
-                    .width(11)
-                    .height(6),
-            );
+            .render(&mut canvas);
 
-        ui.render(&mut canvas);
+        ControlFlow::Continue
     })?;
 
-    std::thread::sleep(std::time::Duration::from_secs(10));
     Ok(())
 }

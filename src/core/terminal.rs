@@ -14,7 +14,7 @@ use crate::Buffer;
 pub struct Terminal {
     width: u16,
     height: u16,
-    /// Whether crossterm raw mode / alternate screen are active.
+    // Whether crossterm raw mode / alternate screen are active.
     initialized: bool,
 }
 
@@ -45,7 +45,12 @@ impl Terminal {
         (self.width, self.height)
     }
 
-    /// Create a buffer, run your render closure, flush to screen.
+    pub(crate) fn set_size(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
+    }
+
+    // Create a buffer, do the rendering, flush to screen.
     pub fn draw<F>(&mut self, f: F) -> io::Result<()>
     where
         F: FnOnce(&mut Buffer),
