@@ -68,13 +68,13 @@ impl<'a> Canvas<'a> {
         self.buffer.set(self.x + local_x, self.y + local_y, cell);
     }
 
-    pub fn subview(&mut self, local_x: u16, local_y: u16, width: u16, height: u16) -> Canvas<'_> {
+    pub fn subcanvas(&mut self, local_x: u16, local_y: u16, width: u16, height: u16) -> Canvas<'_> {
         let x = self.x.saturating_add(local_x);
         let y = self.y.saturating_add(local_y);
 
         // Clip child to parent bounds
-        let max_w = self.width.saturating_add(local_x);
-        let max_h = self.height.saturating_add(local_y);
+        let max_w = self.width.saturating_sub(local_x);
+        let max_h = self.height.saturating_sub(local_y);
         let width = width.min(max_w);
         let height = height.min(max_h);
 
