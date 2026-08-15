@@ -1,7 +1,7 @@
 // Canvas is subregion of buffer that is used to access and write to the main buffer using local cordinates(for ex. Canvas can be used by div)
 // Canvas uses a Area Struct to define where it is located within the main buffer
 
-use crate::{Buffer, Cell};
+use super::{Buffer, Cell};
 
 // Area Struct
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

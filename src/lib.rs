@@ -1,7 +1,5 @@
-mod buffer;
-mod canvas;
-mod cell;
+mod core;
+mod widgets;
 
-pub use buffer::Buffer;
-pub use canvas::{Area, Canvas};
-pub use cell::Cell;
+pub use core::{Area, Buffer, Canvas, Cell};
+pub use widgets::Div;

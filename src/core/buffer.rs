@@ -1,4 +1,4 @@
-use crate::Cell;
+use super::Cell;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Buffer {

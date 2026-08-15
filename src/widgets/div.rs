@@ -1,0 +1,330 @@
+use crate::{Canvas, Cell};
+
+#[derive(Debug, Clone, Default)]
+pub struct DivOptions {
+    pub border: bool,
+    pub title: Option<String>,
+    pub padding: u16,
+}
+
+impl DivOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn border(mut self, on: bool) -> Self {
+        self.border = on;
+        self
+    }
+
+    pub fn title(mut self, text: impl Into<String>) -> Self {
+        self.title = Some(text.into());
+        self
+    }
+
+    pub fn padding(mut self, n: u16) -> Self {
+        self.padding = n;
+        self
+    }
+}
+
+pub struct Div {
+    pub options: DivOptions,
+    pub children: Vec<Div>,
+}
+
+impl Div {
+    pub fn new() -> Self {
+        Self {
+            options: DivOptions::default(),
+            children: Vec::new(),
+        }
+    }
+
+    pub fn options(mut self, options: DivOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    pub fn border(mut self, on: bool) -> Self {
+        self.options.border = on;
+        self
+    }
+
+    pub fn title(mut self, text: impl Into<String>) -> Self {
+        self.options.title = Some(text.into());
+        self
+    }
+
+    pub fn padding(mut self, n: u16) -> Self {
+        self.options.padding = n;
+        self
+    }
+
+    pub fn child(mut self, child: Div) -> Self {
+        self.children.push(child);
+        self
+    }
+
+    pub fn render(&self, canvas: &mut Canvas) {
+        if self.options.border {
+            draw_border(canvas, self.options.title.as_deref());
+        } else if let Some(title) = &self.options.title {
+            draw_title(canvas, title);
+        }
+
+        let content = content_area(canvas, &self.options);
+        render_children(&self.children, canvas, content);
+    }
+}
+
+struct ContentArea {
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+}
+
+fn content_area(canvas: &Canvas, options: &DivOptions) -> ContentArea {
+    let mut x = 0;
+    let mut y = 0;
+    let mut w = canvas.width();
+    let mut h = canvas.height();
+
+    if options.border {
+        x += 1;
+        y += 1;
+        w = w.saturating_sub(2);
+        h = h.saturating_sub(2);
+    }
+
+    if options.title.is_some() && !options.border {
+        y += 1;
+        h = h.saturating_sub(1);
+    }
+
+    x += options.padding;
+    y += options.padding;
+    w = w.saturating_sub(options.padding * 2);
+    h = h.saturating_sub(options.padding * 2);
+
+    ContentArea {
+        x,
+        y,
+        width: w,
+        height: h,
+    }
+}
+
+fn render_children(children: &[Div], canvas: &mut Canvas, area: ContentArea) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let mut y = area.y;
+    for child in children {
+        let child_h = 3_u16.min(area.height);
+        if y + child_h > area.y + area.height {
+            break;
+        }
+
+        let mut child_canvas = canvas.subview(area.x, y, area.width, child_h);
+        child.render(&mut child_canvas);
+        y += child_h + 1;
+    }
+}
+
+fn draw_border(canvas: &mut Canvas, title: Option<&str>) {
+    let w = canvas.width();
+    let h = canvas.height();
+    if w == 0 || h == 0 {
+        return;
+    }
+
+    // corners
+    canvas.set(0, 0, Cell::new('┌'));
+    canvas.set(w - 1, 0, Cell::new('┐'));
+    canvas.set(0, h - 1, Cell::new('└'));
+    canvas.set(w - 1, h - 1, Cell::new('┘'));
+
+    // top border, with title carved in
+    if let Some(title) = title {
+        canvas.set(1, 0, Cell::new(' '));
+        for (i, ch) in title.chars().enumerate() {
+            let x = 2 + i as u16;
+            if x >= w.saturating_sub(1) {
+                break;
+            }
+            canvas.set(x, 0, Cell::new(ch));
+        }
+        let title_end = 2 + title.chars().count() as u16;
+        for x in title_end.max(2)..w.saturating_sub(1) {
+            canvas.set(x, 0, Cell::new('─'));
+        }
+    } else {
+        for x in 1..w.saturating_sub(1) {
+            canvas.set(x, 0, Cell::new('─'));
+        }
+    }
+
+    // bottom
+    for x in 1..w.saturating_sub(1) {
+        canvas.set(x, h - 1, Cell::new('─'));
+    }
+
+    // sides
+    for y in 1..h.saturating_sub(1) {
+        canvas.set(0, y, Cell::new('│'));
+        canvas.set(w - 1, y, Cell::new('│'));
+    }
+}
+
+fn draw_title(canvas: &mut Canvas, title: &str) {
+    for (i, ch) in title.chars().enumerate() {
+        if i as u16 >= canvas.width() {
+            break;
+        }
+        canvas.set(i as u16, 0, Cell::new(ch));
+    }
+}
+
+// Test cases
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Area, Buffer};
+
+    fn render_div(div: &Div, width: u16, height: u16) -> Buffer {
+        let mut buf = Buffer::new(width, height);
+        let area = Area::new(0, 0, width, height);
+        let mut canvas = Canvas::new(&mut buf, area);
+        div.render(&mut canvas);
+        buf
+    }
+
+    #[test]
+    fn plain_div_leaves_buffer_empty() {
+        let buf = render_div(&Div::new(), 10, 5);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, ' ');
+        assert_eq!(buf.get(5, 2).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn border_draws_corners() {
+        let div = Div::new().border(true);
+        let buf = render_div(&div, 10, 5);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, '┌');
+        assert_eq!(buf.get(9, 0).unwrap().ch, '┐');
+        assert_eq!(buf.get(0, 4).unwrap().ch, '└');
+        assert_eq!(buf.get(9, 4).unwrap().ch, '┘');
+    }
+
+    #[test]
+    fn border_draws_horizontal_edges() {
+        let div = Div::new().border(true);
+        let buf = render_div(&div, 10, 5);
+
+        assert_eq!(buf.get(4, 0).unwrap().ch, '─');
+        assert_eq!(buf.get(4, 4).unwrap().ch, '─');
+    }
+
+    #[test]
+    fn border_draws_vertical_edges() {
+        let div = Div::new().border(true);
+        let buf = render_div(&div, 10, 5);
+
+        assert_eq!(buf.get(0, 2).unwrap().ch, '│');
+        assert_eq!(buf.get(9, 2).unwrap().ch, '│');
+    }
+
+    #[test]
+    fn title_without_border_draws_on_first_row() {
+        let div = Div::new().title("Hi");
+        let buf = render_div(&div, 10, 5);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'H');
+        assert_eq!(buf.get(1, 0).unwrap().ch, 'i');
+        assert_eq!(buf.get(2, 0).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn title_with_border_draws_in_top_border() {
+        let div = Div::new().border(true).title("Hi");
+        let buf = render_div(&div, 12, 5);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, '┌');
+        assert_eq!(buf.get(1, 0).unwrap().ch, ' ');
+        assert_eq!(buf.get(2, 0).unwrap().ch, 'H');
+        assert_eq!(buf.get(3, 0).unwrap().ch, 'i');
+        assert_eq!(buf.get(4, 0).unwrap().ch, '─');
+        assert_eq!(buf.get(11, 0).unwrap().ch, '┐');
+    }
+
+    #[test]
+    fn long_title_is_truncated_to_fit_border() {
+        let div = Div::new().border(true).title("HelloWorld");
+        let buf = render_div(&div, 8, 5);
+
+        // only room for: "┌ HelloW" before top-right corner
+        assert_eq!(buf.get(2, 0).unwrap().ch, 'H');
+        assert_eq!(buf.get(6, 0).unwrap().ch, 'o');
+        assert_eq!(buf.get(7, 0).unwrap().ch, '┐');
+    }
+
+    #[test]
+    fn builder_sets_options_and_children() {
+        let div = Div::new()
+            .border(true)
+            .title("Settings")
+            .padding(1)
+            .child(Div::new().border(true));
+
+        assert!(div.options.border);
+        assert_eq!(div.options.title.as_deref(), Some("Settings"));
+        assert_eq!(div.options.padding, 1);
+        assert_eq!(div.children.len(), 1);
+        assert!(div.children[0].options.border);
+    }
+
+    #[test]
+    fn div_options_builder_works() {
+        let options = DivOptions::new().border(true).title("Panel").padding(2);
+
+        assert!(options.border);
+        assert_eq!(options.title.as_deref(), Some("Panel"));
+        assert_eq!(options.padding, 2);
+    }
+
+    #[test]
+    fn nested_bordered_div_draws_inner_border() {
+        let div = Div::new().border(true).child(Div::new().border(true));
+
+        let buf = render_div(&div, 20, 10);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, '┌'); // outer
+        assert_eq!(buf.get(1, 1).unwrap().ch, '┌'); // inner (no padding)
+    }
+
+    #[test]
+    fn padding_insets_child_border() {
+        let div = Div::new()
+            .border(true)
+            .padding(1)
+            .child(Div::new().border(true));
+
+        let buf = render_div(&div, 20, 10);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, '┌'); // outer
+        assert_eq!(buf.get(2, 2).unwrap().ch, '┌'); // inner pushed in by padding
+    }
+
+    #[test]
+    fn zero_size_canvas_does_not_panic() {
+        let div = Div::new().border(true).title("Hi");
+        let mut buf = Buffer::new(0, 0);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 0, 0));
+        div.render(&mut canvas);
+    }
+}
