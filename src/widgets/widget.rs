@@ -6,6 +6,7 @@ pub struct LayoutOptions {
     pub y: Option<u16>,
     pub width: Option<u16>,
     pub height: Option<u16>,
+    pub flex: Option<u16>,
 }
 
 impl LayoutOptions {
@@ -28,10 +29,18 @@ impl LayoutOptions {
         self.height = Some(n);
         self
     }
+
+    pub fn flex(mut self, n: u16) -> Self {
+        self.flex = Some(n);
+        self
+    }
 }
 
 pub trait Widget {
     fn render(&self, canvas: &mut Canvas);
     fn layout(&self) -> &LayoutOptions;
     fn default_height(&self) -> u16;
+    fn default_width(&self) -> u16 {
+        1
+    }
 }

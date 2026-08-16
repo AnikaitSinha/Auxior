@@ -84,6 +84,11 @@ impl Div {
         self
     }
 
+    pub fn flex(mut self, n: u16) -> Self {
+        self.options.layout.flex = Some(n);
+        self
+    }
+
     pub fn child(mut self, child: impl Widget + 'static) -> Self {
         self.children.push(Box::new(child));
         self

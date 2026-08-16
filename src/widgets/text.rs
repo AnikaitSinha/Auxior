@@ -42,6 +42,11 @@ impl Text {
         self.layout.height = Some(n);
         self
     }
+
+    pub fn flex(mut self, n: u16) -> Self {
+        self.layout.flex = Some(n);
+        self
+    }
 }
 
 impl Widget for Text {
@@ -71,6 +76,14 @@ impl Widget for Text {
 
     fn default_height(&self) -> u16 {
         self.content.lines().count().max(1) as u16
+    }
+
+    fn default_width(&self) -> u16 {
+        self.content
+            .lines()
+            .map(|line| line.chars().count() as u16)
+            .max()
+            .unwrap_or(1)
     }
 }
 

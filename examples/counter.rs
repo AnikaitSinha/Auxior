@@ -2,7 +2,7 @@ use auxior::{App, AppConfig, AppEvent, Area, Canvas, Cell, ControlFlow, Div, Tex
 use crossterm::event::{KeyCode, KeyEvent};
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::with_config(AppConfig::new().target_fps(10))?;
+    let mut app = App::with_config(AppConfig::new().target_fps(60))?;
     let mut count = 0_i32;
 
     app.run(|buf, events| {
