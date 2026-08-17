@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
-use super::{Buffer, Terminal};
+use super::{Buffer, Terminal, keymap::KeyMap};
 
 // Target frame rate and runtime options for [`App`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,10 +110,14 @@ impl App {
                 break;
             }
 
+            KeyMap::clear();
+
             let mut control = ControlFlow::Continue;
             self.terminal.draw(|buf| {
                 control = frame(buf, &frame_events);
             })?;
+
+            KeyMap::dispatch(&frame_events);
 
             last_frame = now;
 

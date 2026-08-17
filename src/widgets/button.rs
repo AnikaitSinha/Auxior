@@ -1,5 +1,8 @@
+use std::cell::RefCell;
+
 use crossterm::style::Color;
 
+use crate::core::KeyMap;
 use crate::{Canvas, Cell, LayoutOptions, Widget};
 
 pub struct Button {
@@ -9,7 +12,7 @@ pub struct Button {
     layout: LayoutOptions,
     key: Option<char>,
     state: bool,
-    on_action: Option<Box<dyn FnMut()>>,
+    on_action: RefCell<Option<Box<dyn FnMut()>>>,
 }
 
 pub enum ButtonType {
@@ -26,7 +29,7 @@ impl Button {
             layout: LayoutOptions::default(),
             key: None,
             state: false,
-            on_action: None,
+            on_action: RefCell::new(None),
         }
     }
 
@@ -38,7 +41,7 @@ impl Button {
             layout: LayoutOptions::default(),
             key: None,
             state: false,
-            on_action: None,
+            on_action: RefCell::new(None),
         }
     }
 
@@ -77,78 +80,68 @@ impl Button {
         self
     }
 
-    pub fn on_press(mut self, f: impl FnMut() + 'static) -> Self {
-        self.on_action = Some(Box::new(f));
+    pub fn on_press(self, f: impl FnMut() + 'static) -> Self {
+        *self.on_action.borrow_mut() = Some(Box::new(f));
         self
     }
 
-    pub fn handle_key(mut self, key: char) -> bool {
-        if self.key != Some(key) {
-            return false;
-        }
+    pub fn active(mut self, on: bool) -> Self {
+        self.state = on;
+        self
+    }
 
-        match self.button_type {
-            ButtonType::Push => {}
-            ButtonType::Toggle => self.state = !self.state,
-        }
-
-        if let Some(f) = &mut self.on_action {
-            f();
-        }
-
-        return true;
+    pub fn state(&self) -> bool {
+        self.state
     }
 
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }
+
+    fn register_key(&self) {
+        let Some(key) = self.key else {
+            return;
+        };
+
+        let Some(handler) = self.on_action.borrow_mut().take() else {
+            return;
+        };
+
+        KeyMap::bind(key, handler);
+    }
+
+    fn display_text(&self) -> String {
+        match self.button_type {
+            ButtonType::Push => format!("[ {} ]", self.label),
+            ButtonType::Toggle => {
+                let mark = if self.state { 'x' } else { ' ' };
+                format!("[{}] {}", mark, self.label)
+            }
+        }
+    }
 }
 
 impl Widget for Button {
-    fn render(&self, canvas: &mut crate::Canvas) {
-        // implement custom render function for each type of button enum
-        match self.button_type {
-            ButtonType::Push => {
-                let width = canvas.width();
-                let height = canvas.height();
-                if width == 0 || height == 0 {
-                    return;
-                }
+    fn render(&self, canvas: &mut Canvas) {
+        self.register_key();
 
-                let inner = format!("[ {} ]", self.label);
-                let row = 0;
+        let width = canvas.width();
+        let height = canvas.height();
+        if width == 0 || height == 0 {
+            return;
+        }
 
-                for (col, ch) in inner.chars().enumerate() {
-                    let x = col as u16;
-                    if x >= width {
-                        break;
-                    }
+        let inner = self.display_text();
+        let row = 0;
 
-                    let cell = Cell::with_fg(ch, self.fg);
-                    canvas.set(x, row, cell);
-                }
+        for (col, ch) in inner.chars().enumerate() {
+            let x = col as u16;
+            if x >= width {
+                break;
             }
 
-            ButtonType::Toggle => {
-                let width = canvas.width();
-                let height = canvas.height();
-                if width == 0 || height == 0 {
-                    return;
-                }
-
-                let inner = format!("[ {} ]", self.label);
-                let row = 0;
-
-                for (col, ch) in inner.chars().enumerate() {
-                    let x = col as u16;
-                    if x >= width {
-                        break;
-                    }
-
-                    let cell = Cell::with_fg(ch, self.fg);
-                    canvas.set(x, row, cell);
-                }
-            }
+            let cell = Cell::with_fg(ch, self.fg);
+            canvas.set(x, row, cell);
         }
     }
 
@@ -159,6 +152,10 @@ impl Widget for Button {
     fn default_height(&self) -> u16 {
         1
     }
+
+    fn default_width(&self) -> u16 {
+        self.display_text().chars().count() as u16
+    }
 }
 
 #[cfg(test)]
@@ -167,10 +164,13 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
+    use crate::core::{AppEvent, KeyMap};
     use crate::{Area, Buffer, Canvas};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use crossterm::style::Color;
 
     fn render_button(button: &Button, w: u16, h: u16) -> Buffer {
+        KeyMap::clear();
         let mut buf = Buffer::new(w, h);
         let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, w, h));
         button.render(&mut canvas);
@@ -191,8 +191,15 @@ mod tests {
     fn toggle_renders_bracketed_label() {
         let buf = render_button(&Button::toggle("Mute"), 20, 1);
         assert_eq!(buf.get(0, 0).unwrap().ch, '[');
-        assert_eq!(buf.get(2, 0).unwrap().ch, 'M');
-        assert_eq!(buf.get(7, 0).unwrap().ch, ']');
+        assert_eq!(buf.get(1, 0).unwrap().ch, ' ');
+        assert_eq!(buf.get(2, 0).unwrap().ch, ']');
+        assert_eq!(buf.get(4, 0).unwrap().ch, 'M');
+    }
+
+    #[test]
+    fn toggle_renders_active_state() {
+        let buf = render_button(&Button::toggle("Mute").active(true), 20, 1);
+        assert_eq!(buf.get(1, 0).unwrap().ch, 'x');
     }
 
     #[test]
@@ -212,9 +219,16 @@ mod tests {
 
     #[test]
     fn zero_size_canvas_does_not_panic() {
+        KeyMap::clear();
         let mut buf = Buffer::new(0, 0);
         let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 0, 0));
         Button::push("Save").render(&mut canvas);
+    }
+
+    #[test]
+    fn default_width_matches_label() {
+        let button = Button::push("Save");
+        assert_eq!(button.default_width(), 8);
     }
 
     #[test]
@@ -224,49 +238,48 @@ mod tests {
     }
 
     #[test]
-    fn handle_key_returns_false_for_wrong_key() {
+    fn render_registers_key_for_dispatch() {
         let count = Rc::new(Cell::new(0));
         let count_for_callback = Rc::clone(&count);
+
+        KeyMap::clear();
         let button = Button::push("Go")
             .key('g')
             .on_press(move || count_for_callback.set(count_for_callback.get() + 1));
 
-        assert!(!button.handle_key('x'));
-        assert_eq!(count.get(), 0);
-    }
+        let mut buf = Buffer::new(10, 1);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 10, 1));
+        button.render(&mut canvas);
 
-    #[test]
-    fn handle_key_returns_false_when_no_key_is_set() {
-        let count = Rc::new(Cell::new(0));
-        let count_for_callback = Rc::clone(&count);
-        let button = Button::push("Go")
-            .on_press(move || count_for_callback.set(count_for_callback.get() + 1));
+        let events = [AppEvent::Key(KeyEvent::new(
+            KeyCode::Char('g'),
+            KeyModifiers::NONE,
+        ))];
+        KeyMap::dispatch(&events);
 
-        assert!(!button.handle_key('g'));
-        assert_eq!(count.get(), 0);
-    }
-
-    #[test]
-    fn handle_key_returns_true_and_runs_callback_for_matching_key() {
-        let count = Rc::new(Cell::new(0));
-        let count_for_callback = Rc::clone(&count);
-        let button = Button::push("Go")
-            .key('g')
-            .on_press(move || count_for_callback.set(count_for_callback.get() + 1));
-
-        assert!(button.handle_key('g'));
         assert_eq!(count.get(), 1);
     }
 
     #[test]
-    fn toggle_handle_key_runs_callback() {
-        let pressed = Rc::new(Cell::new(0));
-        let pressed_for_callback = Rc::clone(&pressed);
-        let button = Button::toggle("Mute")
-            .key('m')
-            .on_press(move || pressed_for_callback.set(pressed_for_callback.get() + 1));
+    fn render_does_not_dispatch_wrong_key() {
+        let count = Rc::new(Cell::new(0));
+        let count_for_callback = Rc::clone(&count);
 
-        assert!(button.handle_key('m'));
-        assert_eq!(pressed.get(), 1);
+        KeyMap::clear();
+        let button = Button::push("Go")
+            .key('g')
+            .on_press(move || count_for_callback.set(count_for_callback.get() + 1));
+
+        let mut buf = Buffer::new(10, 1);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 10, 1));
+        button.render(&mut canvas);
+
+        let events = [AppEvent::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))];
+        KeyMap::dispatch(&events);
+
+        assert_eq!(count.get(), 0);
     }
 }
