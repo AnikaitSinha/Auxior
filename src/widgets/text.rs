@@ -91,7 +91,17 @@ impl Widget for Text {
                 if x >= max_w {
                     break;
                 }
-                canvas.set(x, y, Cell::with_fg(ch, self.fg));
+                let mut cell: Cell = Cell::with_fg(ch, self.fg);
+                if self.bold {
+                    cell = cell.set_bold();
+                }
+                if self.italic {
+                    cell = cell.set_italic();
+                }
+                if self.underline {
+                    cell = cell.set_underline();
+                }
+                canvas.set(x, y, cell);
             }
         }
     }

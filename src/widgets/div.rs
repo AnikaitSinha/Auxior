@@ -342,10 +342,10 @@ mod tests {
         let div = Div::new().border(true);
         let buf = render_div(&div, 10, 5);
 
-        assert_eq!(buf.get(0, 0).unwrap().ch, '┌');
-        assert_eq!(buf.get(9, 0).unwrap().ch, '┐');
-        assert_eq!(buf.get(0, 4).unwrap().ch, '└');
-        assert_eq!(buf.get(9, 4).unwrap().ch, '┘');
+        assert_eq!(buf.get(0, 0).unwrap().ch, '╭');
+        assert_eq!(buf.get(9, 0).unwrap().ch, '╮');
+        assert_eq!(buf.get(0, 4).unwrap().ch, '╰');
+        assert_eq!(buf.get(9, 4).unwrap().ch, '╯');
     }
 
     #[test]
@@ -381,13 +381,13 @@ mod tests {
         let div = Div::new().border(true).title(Text::new("Hi"));
         let buf = render_div(&div, 12, 5);
 
-        assert_eq!(buf.get(0, 0).unwrap().ch, '┌');
+        assert_eq!(buf.get(0, 0).unwrap().ch, '╭');
         assert_eq!(buf.get(1, 0).unwrap().ch, ' ');
         assert_eq!(buf.get(2, 0).unwrap().ch, 'H');
         assert_eq!(buf.get(3, 0).unwrap().ch, 'i');
         assert_eq!(buf.get(4, 0).unwrap().ch, ' ');
         assert_eq!(buf.get(5, 0).unwrap().ch, '─');
-        assert_eq!(buf.get(11, 0).unwrap().ch, '┐');
+        assert_eq!(buf.get(11, 0).unwrap().ch, '╮');
     }
 
     #[test]
@@ -397,7 +397,7 @@ mod tests {
 
         assert_eq!(buf.get(2, 0).unwrap().ch, 'H');
         assert_eq!(buf.get(6, 0).unwrap().ch, 'o');
-        assert_eq!(buf.get(7, 0).unwrap().ch, '┐');
+        assert_eq!(buf.get(7, 0).unwrap().ch, '╮');
     }
 
     #[test]
@@ -456,8 +456,8 @@ mod tests {
 
         let buf = render_div(&div, 20, 10);
 
-        assert_eq!(buf.get(0, 0).unwrap().ch, '┌');
-        assert_eq!(buf.get(1, 1).unwrap().ch, '┌');
+        assert_eq!(buf.get(0, 0).unwrap().ch, '╭');
+        assert_eq!(buf.get(1, 1).unwrap().ch, '╭');
     }
 
     #[test]
@@ -469,8 +469,8 @@ mod tests {
 
         let buf = render_div(&div, 20, 10);
 
-        assert_eq!(buf.get(0, 0).unwrap().ch, '┌');
-        assert_eq!(buf.get(2, 2).unwrap().ch, '┌');
+        assert_eq!(buf.get(0, 0).unwrap().ch, '╭');
+        assert_eq!(buf.get(2, 2).unwrap().ch, '╭');
     }
 
     #[test]
@@ -486,8 +486,8 @@ mod tests {
         let div = Div::new().border(true).width(8).height(4);
         let buf = render_div(&div, 20, 10);
 
-        assert_eq!(buf.get(7, 0).unwrap().ch, '┐');
-        assert_eq!(buf.get(0, 3).unwrap().ch, '└');
+        assert_eq!(buf.get(7, 0).unwrap().ch, '╮');
+        assert_eq!(buf.get(0, 3).unwrap().ch, '╰');
     }
 
     #[test]
@@ -497,7 +497,7 @@ mod tests {
             .child(Div::new().border(true).x(3).y(2).width(5).height(3));
 
         let buf = render_div(&div, 20, 10);
-        assert_eq!(buf.get(4, 3).unwrap().ch, '┌');
+        assert_eq!(buf.get(4, 3).unwrap().ch, '╭');
     }
 
     #[test]
@@ -508,8 +508,8 @@ mod tests {
             .child(Div::new().border(true).width(6).height(3));
 
         let buf = render_div(&div, 20, 12);
-        assert_eq!(buf.get(1, 1).unwrap().ch, '┌');
-        assert_eq!(buf.get(1, 5).unwrap().ch, '┌');
+        assert_eq!(buf.get(1, 1).unwrap().ch, '╭');
+        assert_eq!(buf.get(1, 5).unwrap().ch, '╭');
     }
 
     #[test]
@@ -541,6 +541,6 @@ mod tests {
 
         let buf = render_div(&div, 20, 12);
         assert_eq!(buf.get(2, 2).unwrap().ch, 'T');
-        assert_eq!(buf.get(2, 4).unwrap().ch, '┌');
+        assert_eq!(buf.get(2, 4).unwrap().ch, '╭');
     }
 }

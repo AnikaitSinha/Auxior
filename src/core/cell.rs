@@ -43,6 +43,21 @@ impl Cell {
             ..Self::default()
         }
     }
+
+    pub fn set_bold(mut self: Cell) -> Self {
+        self.b = true;
+        self
+    }
+
+    pub fn set_italic(mut self) -> Self {
+        self.i = true;
+        self
+    }
+
+    pub fn set_underline(mut self) -> Self {
+        self.u = true;
+        self
+    }
 }
 
 // Test cases

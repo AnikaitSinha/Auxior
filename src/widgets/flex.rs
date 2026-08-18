@@ -350,8 +350,8 @@ mod tests {
 
         let buf = render_flex(&flex, 10, 10);
         assert_eq!(buf.get(0, 0).unwrap().ch, 'F');
-        assert_eq!(buf.get(0, 2).unwrap().ch, '┌');
-        assert_eq!(buf.get(0, 9).unwrap().ch, '└');
+        assert_eq!(buf.get(0, 2).unwrap().ch, '╭');
+        assert_eq!(buf.get(0, 9).unwrap().ch, '╰');
     }
 
     #[test]
@@ -376,8 +376,8 @@ mod tests {
 
         let buf = render_flex(&flex, 12, 5);
         assert_eq!(buf.get(0, 0).unwrap().ch, 'A');
-        assert_eq!(buf.get(2, 0).unwrap().ch, '┌');
-        assert_eq!(buf.get(11, 0).unwrap().ch, '┐');
+        assert_eq!(buf.get(2, 0).unwrap().ch, '╭');
+        assert_eq!(buf.get(11, 0).unwrap().ch, '╮');
     }
 
     #[test]
@@ -397,7 +397,7 @@ mod tests {
 
         let buf = render_flex(&flex, 12, 8);
         assert_eq!(buf.get(0, 0).unwrap().ch, 'T');
-        assert_eq!(buf.get(0, 2).unwrap().ch, '┌');
-        assert_eq!(buf.get(6, 2).unwrap().ch, '┌');
+        assert_eq!(buf.get(0, 2).unwrap().ch, '╭');
+        assert_eq!(buf.get(6, 2).unwrap().ch, '╭');
     }
 }

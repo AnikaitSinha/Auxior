@@ -12,7 +12,14 @@ fn main() -> std::io::Result<()> {
 
         Div::new()
             .border(true)
-            .title(Text::new("Flex Demo").fg(Color::DarkMagenta).x(10))
+            .title(
+                Text::new("Flex Demo")
+                    .fg(Color::DarkMagenta)
+                    .x(10)
+                    .bold(true)
+                    .underline(true)
+                    .italic(true),
+            )
             .padding(1)
             .child(
                 Flex::column()

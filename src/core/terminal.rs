@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     execute,
-    style::{Print, SetBackgroundColor, SetForegroundColor},
+    style::{Attribute, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{
         EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
     },
@@ -67,6 +67,9 @@ impl Terminal {
     fn flush_to<W: Write>(buffer: &Buffer, writer: &mut W) -> io::Result<()> {
         let mut last_fg = None;
         let mut last_bg = None;
+        let mut last_b = None;
+        let mut last_i = None;
+        let mut last_u = None;
 
         for y in 0..buffer.height {
             for x in 0..buffer.width {
@@ -84,6 +87,42 @@ impl Terminal {
                 if last_bg != Some(cell.bg) {
                     execute!(writer, SetBackgroundColor(cell.bg))?;
                     last_bg = Some(cell.bg);
+                }
+
+                if last_b != Some(cell.b) {
+                    execute!(
+                        writer,
+                        SetAttribute(if cell.b {
+                            Attribute::Bold
+                        } else {
+                            Attribute::NormalIntensity
+                        })
+                    )?;
+                    last_b = Some(cell.b);
+                }
+
+                if last_i != Some(cell.i) {
+                    execute!(
+                        writer,
+                        SetAttribute(if cell.i {
+                            Attribute::Italic
+                        } else {
+                            Attribute::NoItalic
+                        })
+                    )?;
+                    last_i = Some(cell.i);
+                }
+
+                if last_u != Some(cell.u) {
+                    execute!(
+                        writer,
+                        SetAttribute(if cell.u {
+                            Attribute::Underlined
+                        } else {
+                            Attribute::NoUnderline
+                        })
+                    )?;
+                    last_u = Some(cell.u);
                 }
 
                 execute!(writer, Print(cell.ch))?;
@@ -225,7 +264,23 @@ mod tests {
 
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains('Z'));
-        // crossterm also writes ANSI escape codes for color
         assert!(output.contains("\x1b["));
+    }
+
+    #[test]
+    fn flush_to_turns_bold_off_for_non_bold_cells() {
+        let mut buf = Buffer::new(2, 1);
+        buf.set(0, 0, Cell::new('A').set_bold());
+        buf.set(1, 0, Cell::new('B'));
+
+        let mut out = Vec::new();
+        Terminal::flush_to(&buf, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert!(output.contains("\x1b[1m"), "expected bold on for A");
+        assert!(
+            output.contains("\x1b[22m") || output.contains("\x1b[0m"),
+            "expected bold reset before B"
+        );
     }
 }
