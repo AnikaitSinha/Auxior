@@ -1,11 +1,11 @@
-use crate::{Area, Canvas, Cell};
+use crate::{Area, Canvas, Cell, Text};
 
 use super::widget::{LayoutOptions, Widget};
 
 #[derive(Debug, Clone, Default)]
 pub struct DivOptions {
     pub border: bool,
-    pub title: Option<String>,
+    pub title: Option<Text>,
     pub padding: u16,
     pub layout: LayoutOptions,
 }
@@ -21,7 +21,12 @@ impl DivOptions {
     }
 
     pub fn title(mut self, text: impl Into<String>) -> Self {
-        self.title = Some(text.into());
+        self.title = Some(Text::new(text));
+        self
+    }
+
+    pub fn title_text(mut self, text: Text) -> Self {
+        self.title = Some(text);
         self
     }
 
@@ -54,8 +59,13 @@ impl Div {
         self
     }
 
-    pub fn title(mut self, text: impl Into<String>) -> Self {
-        self.options.title = Some(text.into());
+    // pub fn title(mut self, text: impl Into<String>) -> Self {
+    //     self.options.title = Some(Text::new(text));
+    //     self
+    // }
+
+    pub fn title(mut self, text: Text) -> Self {
+        self.options.title = Some(text);
         self
     }
 
@@ -101,7 +111,7 @@ impl Div {
 
     fn render_content(&self, canvas: &mut Canvas) {
         if self.options.border {
-            draw_border(canvas, self.options.title.as_deref());
+            draw_border(canvas, self.options.title.as_ref());
         } else if let Some(title) = &self.options.title {
             draw_title(canvas, title);
         }
@@ -149,9 +159,17 @@ fn content_area(canvas: &Canvas, options: &DivOptions) -> Area {
         h = h.saturating_sub(2);
     }
 
-    if options.title.is_some() && !options.border {
-        y += 1;
-        h = h.saturating_sub(1);
+    if let Some(title) = &options.title {
+        if !options.border {
+            let title_y = title.layout().y.unwrap_or(0);
+            let title_h = title
+                .layout()
+                .height
+                .unwrap_or_else(|| title.default_height());
+            let title_rows = title_y.saturating_add(title_h);
+            y += title_rows;
+            h = h.saturating_sub(title_rows);
+        }
     }
 
     x += options.padding;
@@ -221,30 +239,45 @@ fn render_children(children: &[Box<dyn Widget>], canvas: &mut Canvas, area: Area
     }
 }
 
-fn draw_border(canvas: &mut Canvas, title: Option<&str>) {
+fn draw_border(canvas: &mut Canvas, title: Option<&Text>) {
     let w = canvas.width();
     let h = canvas.height();
     if w == 0 || h == 0 {
         return;
     }
 
-    canvas.set(0, 0, Cell::new('┌'));
-    canvas.set(w - 1, 0, Cell::new('┐'));
-    canvas.set(0, h - 1, Cell::new('└'));
-    canvas.set(w - 1, h - 1, Cell::new('┘'));
+    canvas.set(0, 0, Cell::new('╭'));
+    canvas.set(w - 1, 0, Cell::new('╮'));
+    canvas.set(0, h - 1, Cell::new('╰'));
+    canvas.set(w - 1, h - 1, Cell::new('╯'));
 
     if let Some(title) = title {
-        canvas.set(1, 0, Cell::new(' '));
-        for (i, ch) in title.chars().enumerate() {
-            let x = 2 + i as u16;
-            if x >= w.saturating_sub(1) {
-                break;
-            }
-            canvas.set(x, 0, Cell::new(ch));
+        let title_x = title.layout().x.unwrap_or(2);
+
+        for x_pos in 1..title_x.saturating_sub(1) {
+            canvas.set(x_pos, 0, Cell::new('─'));
         }
-        let title_end = 2 + title.chars().count() as u16;
-        for x in title_end.max(2)..w.saturating_sub(1) {
-            canvas.set(x, 0, Cell::new('─'));
+
+        if title_x > 0 {
+            canvas.set(title_x - 1, 0, Cell::new(' '));
+        }
+
+        let max_title_width = w.saturating_sub(title_x).saturating_sub(1);
+        let title_width = title.default_width().min(max_title_width);
+        if title_width > 0 {
+            title.render(&mut canvas.subcanvas(title_x, 0, title_width, 1));
+        }
+
+        let title_end = title_x.saturating_add(title_width);
+        let dash_start = if title_end + 1 < w.saturating_sub(1) {
+            canvas.set(title_end, 0, Cell::new(' '));
+            title_end + 1
+        } else {
+            title_end
+        };
+
+        for x_pos in dash_start..w.saturating_sub(1) {
+            canvas.set(x_pos, 0, Cell::new('─'));
         }
     } else {
         for x in 1..w.saturating_sub(1) {
@@ -262,13 +295,25 @@ fn draw_border(canvas: &mut Canvas, title: Option<&str>) {
     }
 }
 
-fn draw_title(canvas: &mut Canvas, title: &str) {
-    for (i, ch) in title.chars().enumerate() {
-        if i as u16 >= canvas.width() {
-            break;
-        }
-        canvas.set(i as u16, 0, Cell::new(ch));
+fn draw_title(canvas: &mut Canvas, title: &Text) {
+    let x = title.layout().x.unwrap_or(0);
+    let y = title.layout().y.unwrap_or(0);
+    let width = title
+        .layout()
+        .width
+        .unwrap_or_else(|| title.default_width())
+        .min(canvas.width().saturating_sub(x));
+    let height = title
+        .layout()
+        .height
+        .unwrap_or_else(|| title.default_height())
+        .min(canvas.height().saturating_sub(y));
+
+    if width == 0 || height == 0 {
+        return;
     }
+
+    title.render(&mut canvas.subcanvas(x, y, width, height));
 }
 
 #[cfg(test)]
@@ -323,7 +368,7 @@ mod tests {
 
     #[test]
     fn title_without_border_draws_on_first_row() {
-        let div = Div::new().title("Hi");
+        let div = Div::new().title(Text::new("Hi"));
         let buf = render_div(&div, 10, 5);
 
         assert_eq!(buf.get(0, 0).unwrap().ch, 'H');
@@ -333,20 +378,21 @@ mod tests {
 
     #[test]
     fn title_with_border_draws_in_top_border() {
-        let div = Div::new().border(true).title("Hi");
+        let div = Div::new().border(true).title(Text::new("Hi"));
         let buf = render_div(&div, 12, 5);
 
         assert_eq!(buf.get(0, 0).unwrap().ch, '┌');
         assert_eq!(buf.get(1, 0).unwrap().ch, ' ');
         assert_eq!(buf.get(2, 0).unwrap().ch, 'H');
         assert_eq!(buf.get(3, 0).unwrap().ch, 'i');
-        assert_eq!(buf.get(4, 0).unwrap().ch, '─');
+        assert_eq!(buf.get(4, 0).unwrap().ch, ' ');
+        assert_eq!(buf.get(5, 0).unwrap().ch, '─');
         assert_eq!(buf.get(11, 0).unwrap().ch, '┐');
     }
 
     #[test]
     fn long_title_is_truncated_to_fit_border() {
-        let div = Div::new().border(true).title("HelloWorld");
+        let div = Div::new().border(true).title(Text::new("HelloWorld"));
         let buf = render_div(&div, 8, 5);
 
         assert_eq!(buf.get(2, 0).unwrap().ch, 'H');
@@ -355,15 +401,42 @@ mod tests {
     }
 
     #[test]
+    fn title_with_border_renders_text_color() {
+        use crossterm::style::Color;
+
+        let div = Div::new()
+            .border(true)
+            .title(Text::new("Hi").fg(Color::Red));
+        let buf = render_div(&div, 12, 5);
+
+        assert_eq!(buf.get(2, 0).unwrap().ch, 'H');
+        assert_eq!(buf.get(2, 0).unwrap().fg, Color::Red);
+    }
+
+    #[test]
+    fn title_with_border_respects_text_x_offset() {
+        let div = Div::new().border(true).title(Text::new("Hi").x(3));
+        let buf = render_div(&div, 12, 5);
+
+        assert_eq!(buf.get(3, 0).unwrap().ch, 'H');
+        assert_eq!(buf.get(4, 0).unwrap().ch, 'i');
+        assert_eq!(buf.get(5, 0).unwrap().ch, ' ');
+        assert_eq!(buf.get(6, 0).unwrap().ch, '─');
+    }
+
+    #[test]
     fn builder_sets_options_and_children() {
         let div = Div::new()
             .border(true)
-            .title("Settings")
+            .title(Text::new("Settings"))
             .padding(1)
             .child(Div::new().border(true));
 
         assert!(div.options.border);
-        assert_eq!(div.options.title.as_deref(), Some("Settings"));
+        assert_eq!(
+            div.options.title.as_ref().map(Text::content),
+            Some("Settings")
+        );
         assert_eq!(div.options.padding, 1);
         assert_eq!(div.children.len(), 1);
     }
@@ -373,7 +446,7 @@ mod tests {
         let options = DivOptions::new().border(true).title("Panel").padding(2);
 
         assert!(options.border);
-        assert_eq!(options.title.as_deref(), Some("Panel"));
+        assert_eq!(options.title.as_ref().map(Text::content), Some("Panel"));
         assert_eq!(options.padding, 2);
     }
 
@@ -402,7 +475,7 @@ mod tests {
 
     #[test]
     fn zero_size_canvas_does_not_panic() {
-        let div = Div::new().border(true).title("Hi");
+        let div = Div::new().border(true).title(Text::new("Hi"));
         let mut buf = Buffer::new(0, 0);
         let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 0, 0));
         div.render(&mut canvas);

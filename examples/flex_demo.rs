@@ -12,7 +12,7 @@ fn main() -> std::io::Result<()> {
 
         Div::new()
             .border(true)
-            .title("Flex Demo")
+            .title(Text::new("Flex Demo").fg(Color::DarkMagenta).x(10))
             .padding(1)
             .child(
                 Flex::column()
@@ -25,14 +25,14 @@ fn main() -> std::io::Result<()> {
                             .child(
                                 Div::new()
                                     .border(true)
-                                    .title("Left")
+                                    .title(Text::new("Left"))
                                     .flex(1)
                                     .child(Text::new("Panel A")),
                             )
                             .child(
                                 Div::new()
                                     .border(true)
-                                    .title("Right")
+                                    .title(Text::new("Right"))
                                     .flex(1)
                                     .child(Text::new("Panel B")),
                             ),

@@ -3,10 +3,14 @@ use crossterm::style::Color;
 
 use crate::{LayoutOptions, Widget};
 
+#[derive(Debug, Clone)]
 pub struct Text {
     content: String,
     fg: Color,
     layout: LayoutOptions,
+    bold: bool,
+    italic: bool,
+    underline: bool,
 }
 
 impl Text {
@@ -15,11 +19,29 @@ impl Text {
             content: content.into(),
             fg: Color::Reset,
             layout: LayoutOptions::default(),
+            bold: false,
+            italic: false,
+            underline: false,
         }
     }
 
     pub fn fg(mut self, color: Color) -> Self {
         self.fg = color;
+        self
+    }
+
+    pub fn bold(mut self, set: bool) -> Self {
+        self.bold = set;
+        self
+    }
+
+    pub fn italic(mut self, set: bool) -> Self {
+        self.italic = set;
+        self
+    }
+
+    pub fn underline(mut self, set: bool) -> Self {
+        self.underline = set;
         self
     }
 
@@ -46,6 +68,10 @@ impl Text {
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
+    }
+
+    pub fn content(&self) -> &str {
+        &self.content
     }
 }
 

@@ -6,6 +6,9 @@ pub struct Cell {
     pub ch: char,
     pub fg: Color,
     pub bg: Color,
+    pub b: bool,
+    pub i: bool,
+    pub u: bool,
 }
 
 impl Default for Cell {
@@ -14,6 +17,9 @@ impl Default for Cell {
             ch: ' ',
             fg: Color::Reset,
             bg: Color::Reset,
+            b: false,
+            i: false,
+            u: false,
         }
     }
 }

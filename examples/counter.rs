@@ -29,7 +29,7 @@ fn main() -> std::io::Result<()> {
 
         Div::new()
             .border(true)
-            .title("Counter")
+            .title(Text::new("Counter"))
             .padding(1)
             .child(Text::new(format!("Count: {count}")))
             .child(Text::new("+ / - to change, q or Esc to quit"))

@@ -53,7 +53,7 @@ fn main() -> std::io::Result<()> {
 
         Div::new()
             .border(true)
-            .title("Button Counter")
+            .title(Text::new("Button Counter"))
             .padding(1)
             .child(
                 Flex::column()

@@ -12,13 +12,13 @@ fn main() -> std::io::Result<()> {
 
         Div::new()
             .border(true)
-            .title("Auxior")
+            .title(Text::new("Auxior"))
             .padding(1)
             .child(Text::new("Hello from Auxior!").fg(Color::Green))
             .child(
                 Div::new()
                     .border(true)
-                    .title("Panel A")
+                    .title(Text::new("Panel A"))
                     .x(0)
                     .y(2)
                     .width(20)
