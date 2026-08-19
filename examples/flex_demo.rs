@@ -1,4 +1,4 @@
-use auxior::{App, Area, Canvas, Cell, ControlFlow, Div, Flex, Text};
+use auxior::{App, Area, Button, Canvas, Cell, ControlFlow, Div, Flex, Text};
 use crossterm::style::Color;
 
 fn main() -> std::io::Result<()> {
@@ -19,6 +19,21 @@ fn main() -> std::io::Result<()> {
                     .bold(true)
                     .underline(true)
                     .italic(true),
+            )
+            .border_button(
+                Button::border_button("click")
+                    .side(auxior::BorderSide::Top)
+                    .align(auxior::BorderAlign::End),
+            )
+            .border_button(
+                Button::border_button("click2")
+                    .side(auxior::BorderSide::Top)
+                    .align(auxior::BorderAlign::End),
+            )
+            .border_button(
+                Button::border_button("click3")
+                    .side(auxior::BorderSide::Right)
+                    .align(auxior::BorderAlign::End),
             )
             .padding(1)
             .child(

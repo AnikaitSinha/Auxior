@@ -1,13 +1,27 @@
 use crate::{Area, Canvas, Cell, Text};
 
+use super::button::{BorderAlign, BorderSide, Button};
 use super::widget::{LayoutOptions, Widget};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
 pub struct DivOptions {
     pub border: bool,
     pub title: Option<Text>,
+    pub border_buttons: Vec<Button>,
     pub padding: u16,
     pub layout: LayoutOptions,
+}
+
+impl Default for DivOptions {
+    fn default() -> Self {
+        Self {
+            border: false,
+            title: None,
+            border_buttons: Vec::new(),
+            padding: 0,
+            layout: LayoutOptions::default(),
+        }
+    }
 }
 
 impl DivOptions {
@@ -20,12 +34,7 @@ impl DivOptions {
         self
     }
 
-    pub fn title(mut self, text: impl Into<String>) -> Self {
-        self.title = Some(Text::new(text));
-        self
-    }
-
-    pub fn title_text(mut self, text: Text) -> Self {
+    pub fn title(mut self, text: Text) -> Self {
         self.title = Some(text);
         self
     }
@@ -104,6 +113,11 @@ impl Div {
         self
     }
 
+    pub fn border_button(mut self, button: Button) -> Self {
+        self.options.border_buttons.push(button);
+        self
+    }
+
     /// Render this div onto the canvas.
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
@@ -111,7 +125,11 @@ impl Div {
 
     fn render_content(&self, canvas: &mut Canvas) {
         if self.options.border {
-            draw_border(canvas, self.options.title.as_ref());
+            draw_border(
+                canvas,
+                self.options.title.as_ref(),
+                &self.options.border_buttons,
+            );
         } else if let Some(title) = &self.options.title {
             draw_title(canvas, title);
         }
@@ -239,7 +257,7 @@ fn render_children(children: &[Box<dyn Widget>], canvas: &mut Canvas, area: Area
     }
 }
 
-fn draw_border(canvas: &mut Canvas, title: Option<&Text>) {
+fn draw_border(canvas: &mut Canvas, title: Option<&Text>, buttons: &[Button]) {
     let w = canvas.width();
     let h = canvas.height();
     if w == 0 || h == 0 {
@@ -251,47 +269,155 @@ fn draw_border(canvas: &mut Canvas, title: Option<&Text>) {
     canvas.set(0, h - 1, Cell::new('╰'));
     canvas.set(w - 1, h - 1, Cell::new('╯'));
 
-    if let Some(title) = title {
-        let title_x = title.layout().x.unwrap_or(2);
+    draw_horizontal_border(canvas, 0, w, title, buttons, BorderSide::Top);
 
-        for x_pos in 1..title_x.saturating_sub(1) {
-            canvas.set(x_pos, 0, Cell::new('─'));
+    if h > 1 {
+        draw_horizontal_border(canvas, h - 1, w, None, buttons, BorderSide::Bottom);
+    }
+
+    draw_vertical_border(canvas, 0, h, buttons, BorderSide::Left);
+    draw_vertical_border(canvas, w - 1, h, buttons, BorderSide::Right);
+}
+
+fn draw_horizontal_border(
+    canvas: &mut Canvas,
+    y: u16,
+    w: u16,
+    title: Option<&Text>,
+    buttons: &[Button],
+    side: BorderSide,
+) {
+    if w <= 2 {
+        return;
+    }
+
+    let mut occupied = vec![false; w as usize];
+    occupied[0] = true;
+    occupied[(w - 1) as usize] = true;
+
+    let mut x = 1_u16;
+    for button in buttons
+        .iter()
+        .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::Start)
+    {
+        let width = button
+            .default_width()
+            .min(w.saturating_sub(x).saturating_sub(1));
+        if width == 0 {
+            break;
         }
 
-        if title_x > 0 {
-            canvas.set(title_x - 1, 0, Cell::new(' '));
+        button.render(&mut canvas.subcanvas(x, y, width, 1));
+        mark_horizontal(&mut occupied, x, width);
+        x = x.saturating_add(width).saturating_add(1);
+    }
+
+    if side == BorderSide::Top {
+        if let Some(title) = title {
+            let title_x = title.layout().x.unwrap_or(2).max(x);
+            if title_x > 0 && title_x < w {
+                canvas.set(title_x - 1, y, Cell::new(' '));
+                occupied[(title_x - 1) as usize] = true;
+            }
+
+            let max_title_width = w.saturating_sub(title_x).saturating_sub(1);
+            let title_width = title.default_width().min(max_title_width);
+            if title_width > 0 {
+                title.render(&mut canvas.subcanvas(title_x, y, title_width, 1));
+                mark_horizontal(&mut occupied, title_x, title_width);
+
+                let after_title = title_x.saturating_add(title_width);
+                if after_title + 1 < w.saturating_sub(1) {
+                    canvas.set(after_title, y, Cell::new(' '));
+                    occupied[after_title as usize] = true;
+                }
+            }
+        }
+    }
+
+    let mut end_x = w.saturating_sub(2);
+    for button in buttons
+        .iter()
+        .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::End)
+        .rev()
+    {
+        let width = button.default_width().min(end_x);
+        if width == 0 {
+            break;
         }
 
-        let max_title_width = w.saturating_sub(title_x).saturating_sub(1);
-        let title_width = title.default_width().min(max_title_width);
-        if title_width > 0 {
-            title.render(&mut canvas.subcanvas(title_x, 0, title_width, 1));
-        }
-
-        let title_end = title_x.saturating_add(title_width);
-        let dash_start = if title_end + 1 < w.saturating_sub(1) {
-            canvas.set(title_end, 0, Cell::new(' '));
-            title_end + 1
-        } else {
-            title_end
-        };
-
-        for x_pos in dash_start..w.saturating_sub(1) {
-            canvas.set(x_pos, 0, Cell::new('─'));
-        }
-    } else {
-        for x in 1..w.saturating_sub(1) {
-            canvas.set(x, 0, Cell::new('─'));
-        }
+        let x = end_x.saturating_sub(width.saturating_sub(1));
+        button.render(&mut canvas.subcanvas(x, y, width, 1));
+        mark_horizontal(&mut occupied, x, width);
+        end_x = x.saturating_sub(2);
     }
 
     for x in 1..w.saturating_sub(1) {
-        canvas.set(x, h - 1, Cell::new('─'));
+        if !occupied[x as usize] {
+            canvas.set(x, y, Cell::new('─'));
+        }
+    }
+}
+
+fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button], side: BorderSide) {
+    if h <= 2 {
+        return;
+    }
+
+    let mut occupied = vec![false; h as usize];
+    occupied[0] = true;
+    occupied[(h - 1) as usize] = true;
+
+    let mut y = 1_u16;
+    for button in buttons
+        .iter()
+        .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::Start)
+    {
+        for (row, ch) in button.label().chars().enumerate() {
+            let y_pos = y + row as u16;
+            if y_pos >= h.saturating_sub(1) {
+                break;
+            }
+            canvas.set(x, y_pos, Cell::with_fg(ch, button.fg_color()));
+            occupied[y_pos as usize] = true;
+        }
+        button.register_key();
+        y = y.saturating_add(button.label().chars().count() as u16).saturating_add(1);
+    }
+
+    let mut end_y = h.saturating_sub(2);
+    for button in buttons
+        .iter()
+        .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::End)
+        .rev()
+    {
+        let label_len = button.label().chars().count() as u16;
+        if label_len == 0 || label_len > end_y {
+            continue;
+        }
+
+        let y = end_y.saturating_sub(label_len.saturating_sub(1));
+        for (row, ch) in button.label().chars().enumerate() {
+            let y_pos = y + row as u16;
+            canvas.set(x, y_pos, Cell::with_fg(ch, button.fg_color()));
+            occupied[y_pos as usize] = true;
+        }
+        button.register_key();
+        end_y = y.saturating_sub(2);
     }
 
     for y in 1..h.saturating_sub(1) {
-        canvas.set(0, y, Cell::new('│'));
-        canvas.set(w - 1, y, Cell::new('│'));
+        if !occupied[y as usize] {
+            canvas.set(x, y, Cell::new('│'));
+        }
+    }
+}
+
+fn mark_horizontal(occupied: &mut [bool], x: u16, width: u16) {
+    for col in x..x.saturating_add(width) {
+        if let Some(slot) = occupied.get_mut(col as usize) {
+            *slot = true;
+        }
     }
 }
 
@@ -443,11 +569,73 @@ mod tests {
 
     #[test]
     fn div_options_builder_works() {
-        let options = DivOptions::new().border(true).title("Panel").padding(2);
+        let options = DivOptions::new()
+            .border(true)
+            .title(Text::new("Panel"))
+            .padding(2);
 
         assert!(options.border);
         assert_eq!(options.title.as_ref().map(Text::content), Some("Panel"));
         assert_eq!(options.padding, 2);
+    }
+
+    #[test]
+    fn border_button_renders_on_top_border_start() {
+        let div = Div::new().border(true).border_button(
+            Button::border_button("kill")
+                .side(BorderSide::Top)
+                .align(BorderAlign::Start),
+        );
+        let buf = render_div(&div, 20, 5);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, '╭');
+        assert_eq!(buf.get(1, 0).unwrap().ch, '-');
+        assert_eq!(buf.get(2, 0).unwrap().ch, '|');
+        assert_eq!(buf.get(4, 0).unwrap().ch, 'k');
+    }
+
+    #[test]
+    fn border_button_renders_on_top_border_end() {
+        let div = Div::new().border(true).border_button(
+            Button::border_button("quit")
+                .side(BorderSide::Top)
+                .align(BorderAlign::End),
+        );
+        let buf = render_div(&div, 20, 5);
+
+        // "-| quit |-" is 10 chars; ends at x=18, corner at x=19
+        assert_eq!(buf.get(18, 0).unwrap().ch, '-');
+        assert_eq!(buf.get(19, 0).unwrap().ch, '╮');
+    }
+
+    #[test]
+    fn border_button_registers_key_on_render() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        use crate::core::{AppEvent, KeyMap};
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let count = Rc::new(Cell::new(0));
+        let count_for_callback = Rc::clone(&count);
+
+        KeyMap::clear();
+        let div = Div::new().border(true).border_button(
+            Button::border_button("kill")
+                .key('k')
+                .on_press(move || count_for_callback.set(count_for_callback.get() + 1)),
+        );
+
+        let mut buf = Buffer::new(20, 5);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 20, 5));
+        div.render(&mut canvas);
+
+        KeyMap::dispatch(&[AppEvent::Key(KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::NONE,
+        ))]);
+
+        assert_eq!(count.get(), 1);
     }
 
     #[test]

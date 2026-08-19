@@ -5,6 +5,22 @@ use crossterm::style::Color;
 use crate::core::KeyMap;
 use crate::{Canvas, Cell, LayoutOptions, Widget};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BorderSide {
+    #[default]
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BorderAlign {
+    #[default]
+    Start,
+    End,
+}
+
 pub struct Button {
     label: String,
     button_type: ButtonType,
@@ -12,12 +28,16 @@ pub struct Button {
     layout: LayoutOptions,
     key: Option<char>,
     state: bool,
+    border_side: Option<BorderSide>,
+    border_align: BorderAlign,
     on_action: RefCell<Option<Box<dyn FnMut()>>>,
 }
 
+#[derive(Debug)]
 pub enum ButtonType {
     Push,
     Toggle,
+    BorderPush,
 }
 
 impl Button {
@@ -29,6 +49,8 @@ impl Button {
             layout: LayoutOptions::default(),
             key: None,
             state: false,
+            border_side: None,
+            border_align: BorderAlign::Start,
             on_action: RefCell::new(None),
         }
     }
@@ -41,8 +63,47 @@ impl Button {
             layout: LayoutOptions::default(),
             key: None,
             state: false,
+            border_side: None,
+            border_align: BorderAlign::Start,
             on_action: RefCell::new(None),
         }
+    }
+
+    // Clickable segment rendered on a [`Div`](crate::Div) border.
+    pub fn border_button(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            button_type: ButtonType::BorderPush,
+            fg: Color::Reset,
+            layout: LayoutOptions::default(),
+            key: None,
+            state: false,
+            border_side: Some(BorderSide::Top),
+            border_align: BorderAlign::Start,
+            on_action: RefCell::new(None),
+        }
+    }
+
+    pub fn side(mut self, side: BorderSide) -> Self {
+        self.border_side = Some(side);
+        self
+    }
+
+    pub fn align(mut self, align: BorderAlign) -> Self {
+        self.border_align = align;
+        self
+    }
+
+    pub fn border_side(&self) -> Option<BorderSide> {
+        self.border_side
+    }
+
+    pub fn border_align(&self) -> BorderAlign {
+        self.border_align
+    }
+
+    pub fn is_border_button(&self) -> bool {
+        matches!(self.button_type, ButtonType::BorderPush)
     }
 
     pub fn fg(mut self, color: Color) -> Self {
@@ -94,11 +155,19 @@ impl Button {
         self.state
     }
 
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub fn fg_color(&self) -> Color {
+        self.fg
+    }
+
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }
 
-    fn register_key(&self) {
+    pub(crate) fn register_key(&self) {
         let Some(key) = self.key else {
             return;
         };
@@ -117,7 +186,23 @@ impl Button {
                 let mark = if self.state { 'x' } else { ' ' };
                 format!("[{}] {}", mark, self.label)
             }
+            ButtonType::BorderPush => format!("-| {} |-", self.label),
         }
+    }
+}
+
+impl std::fmt::Debug for Button {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Button")
+            .field("label", &self.label)
+            .field("button_type", &self.button_type)
+            .field("fg", &self.fg)
+            .field("layout", &self.layout)
+            .field("key", &self.key)
+            .field("state", &self.state)
+            .field("border_side", &self.border_side)
+            .field("border_align", &self.border_align)
+            .finish_non_exhaustive()
     }
 }
 
@@ -235,6 +320,23 @@ mod tests {
     fn default_height_is_one() {
         let button = Button::push("Save");
         assert_eq!(button.default_height(), 1);
+    }
+
+    #[test]
+    fn border_push_renders_segment() {
+        let buf = render_button(&Button::border_button("kill"), 20, 1);
+        assert_eq!(buf.get(0, 0).unwrap().ch, '-');
+        assert_eq!(buf.get(1, 0).unwrap().ch, '|');
+        assert_eq!(buf.get(2, 0).unwrap().ch, ' ');
+        assert_eq!(buf.get(3, 0).unwrap().ch, 'k');
+    }
+
+    #[test]
+    fn border_button_defaults_to_top_start() {
+        let button = Button::border_button("kill");
+        assert_eq!(button.border_side(), Some(BorderSide::Top));
+        assert_eq!(button.border_align(), BorderAlign::Start);
+        assert!(button.is_border_button());
     }
 
     #[test]

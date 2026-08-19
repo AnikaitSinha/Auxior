@@ -4,7 +4,7 @@ mod flex;
 mod text;
 mod widget;
 
-pub use button::Button;
+pub use button::{BorderAlign, BorderSide, Button};
 pub use div::{Div, DivOptions};
 pub use flex::{Flex, FlexDirection};
 pub use text::Text;
