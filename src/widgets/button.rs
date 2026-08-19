@@ -179,14 +179,20 @@ impl Button {
         KeyMap::bind(key, handler);
     }
 
-    fn display_text(&self) -> String {
+    pub(crate) fn display_text(&self) -> String {
         match self.button_type {
             ButtonType::Push => format!("[ {} ]", self.label),
             ButtonType::Toggle => {
                 let mark = if self.state { 'x' } else { ' ' };
                 format!("[{}] {}", mark, self.label)
             }
-            ButtonType::BorderPush => format!("-| {} |-", self.label),
+            ButtonType::BorderPush => match self.border_side {
+                Some(BorderSide::Top) => format!("╮{}╭", self.label),
+                Some(BorderSide::Bottom) => format!("╯{}╰", self.label),
+                Some(BorderSide::Right) => format!("╯{}╮", self.label),
+                Some(BorderSide::Left) => format!("╰{}╭", self.label),
+                None => format!("╮{}╭", self.label),
+            },
         }
     }
 }
@@ -325,10 +331,10 @@ mod tests {
     #[test]
     fn border_push_renders_segment() {
         let buf = render_button(&Button::border_button("kill"), 20, 1);
-        assert_eq!(buf.get(0, 0).unwrap().ch, '-');
-        assert_eq!(buf.get(1, 0).unwrap().ch, '|');
-        assert_eq!(buf.get(2, 0).unwrap().ch, ' ');
-        assert_eq!(buf.get(3, 0).unwrap().ch, 'k');
+        assert_eq!(buf.get(0, 0).unwrap().ch, '╮');
+        assert_eq!(buf.get(1, 0).unwrap().ch, 'k');
+        assert_eq!(buf.get(2, 0).unwrap().ch, 'i');
+        assert_eq!(buf.get(5, 0).unwrap().ch, '╭');
     }
 
     #[test]

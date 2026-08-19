@@ -373,16 +373,19 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
         .iter()
         .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::Start)
     {
-        for (row, ch) in button.label().chars().enumerate() {
+        let segment: Vec<char> = button.display_text().chars().collect();
+        let height = (segment.len() as u16).min(h.saturating_sub(y).saturating_sub(1));
+        if height == 0 {
+            break;
+        }
+
+        for (row, ch) in segment.iter().take(height as usize).enumerate() {
             let y_pos = y + row as u16;
-            if y_pos >= h.saturating_sub(1) {
-                break;
-            }
-            canvas.set(x, y_pos, Cell::with_fg(ch, button.fg_color()));
+            canvas.set(x, y_pos, Cell::with_fg(*ch, button.fg_color()));
             occupied[y_pos as usize] = true;
         }
         button.register_key();
-        y = y.saturating_add(button.label().chars().count() as u16).saturating_add(1);
+        y = y.saturating_add(height).saturating_add(1);
     }
 
     let mut end_y = h.saturating_sub(2);
@@ -391,15 +394,16 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
         .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::End)
         .rev()
     {
-        let label_len = button.label().chars().count() as u16;
-        if label_len == 0 || label_len > end_y {
+        let segment: Vec<char> = button.display_text().chars().collect();
+        let seg_len = segment.len() as u16;
+        if seg_len == 0 || seg_len > end_y {
             continue;
         }
 
-        let y = end_y.saturating_sub(label_len.saturating_sub(1));
-        for (row, ch) in button.label().chars().enumerate() {
+        let y = end_y.saturating_sub(seg_len.saturating_sub(1));
+        for (row, ch) in segment.iter().enumerate() {
             let y_pos = y + row as u16;
-            canvas.set(x, y_pos, Cell::with_fg(ch, button.fg_color()));
+            canvas.set(x, y_pos, Cell::with_fg(*ch, button.fg_color()));
             occupied[y_pos as usize] = true;
         }
         button.register_key();
@@ -589,9 +593,9 @@ mod tests {
         let buf = render_div(&div, 20, 5);
 
         assert_eq!(buf.get(0, 0).unwrap().ch, '╭');
-        assert_eq!(buf.get(1, 0).unwrap().ch, '-');
-        assert_eq!(buf.get(2, 0).unwrap().ch, '|');
-        assert_eq!(buf.get(4, 0).unwrap().ch, 'k');
+        assert_eq!(buf.get(1, 0).unwrap().ch, '╮');
+        assert_eq!(buf.get(2, 0).unwrap().ch, 'k');
+        assert_eq!(buf.get(6, 0).unwrap().ch, '╭');
     }
 
     #[test]
@@ -603,9 +607,41 @@ mod tests {
         );
         let buf = render_div(&div, 20, 5);
 
-        // "-| quit |-" is 10 chars; ends at x=18, corner at x=19
-        assert_eq!(buf.get(18, 0).unwrap().ch, '-');
+        // "╮quit╭" is 6 chars; ends at x=18, corner at x=19
+        assert_eq!(buf.get(18, 0).unwrap().ch, '╭');
         assert_eq!(buf.get(19, 0).unwrap().ch, '╮');
+    }
+
+    #[test]
+    fn border_button_renders_on_right_border_with_curves() {
+        let div = Div::new().border(true).border_button(
+            Button::border_button("ok")
+                .side(BorderSide::Right)
+                .align(BorderAlign::Start),
+        );
+        let buf = render_div(&div, 10, 8);
+
+        // "╯ok╮" stacked on the right edge starting at y=1
+        assert_eq!(buf.get(9, 1).unwrap().ch, '╯');
+        assert_eq!(buf.get(9, 2).unwrap().ch, 'o');
+        assert_eq!(buf.get(9, 3).unwrap().ch, 'k');
+        assert_eq!(buf.get(9, 4).unwrap().ch, '╮');
+    }
+
+    #[test]
+    fn border_button_renders_on_left_border_with_curves() {
+        let div = Div::new().border(true).border_button(
+            Button::border_button("ok")
+                .side(BorderSide::Left)
+                .align(BorderAlign::Start),
+        );
+        let buf = render_div(&div, 10, 8);
+
+        // "╰ok╭" stacked on the left edge starting at y=1
+        assert_eq!(buf.get(0, 1).unwrap().ch, '╰');
+        assert_eq!(buf.get(0, 2).unwrap().ch, 'o');
+        assert_eq!(buf.get(0, 3).unwrap().ch, 'k');
+        assert_eq!(buf.get(0, 4).unwrap().ch, '╭');
     }
 
     #[test]
