@@ -1,4 +1,4 @@
-use auxior::{App, Area, Button, Canvas, Cell, ControlFlow, Div, Flex, Text};
+use auxior::{App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, Text};
 use crossterm::style::Color;
 
 fn main() -> std::io::Result<()> {
@@ -14,7 +14,11 @@ fn main() -> std::io::Result<()> {
             .border(true)
             .title(
                 Text::new("Flex Demo")
-                    .fg(Color::DarkMagenta)
+                    .fg(crossterm::style::Color::Rgb {
+                        r: 123,
+                        g: 11,
+                        b: 166,
+                    })
                     .x(10)
                     .bold(true)
                     .underline(true)
@@ -59,7 +63,8 @@ fn main() -> std::io::Result<()> {
                                     .child(Text::new("Panel B")),
                             ),
                     )
-                    .child(Text::new("Footer — q to quit")),
+                    .child(Text::new("Footer — q to quit"))
+                    .child(Bar::new().width(6).fill(0.7).bg(Color::Black)),
             )
             .render(&mut canvas);
 
