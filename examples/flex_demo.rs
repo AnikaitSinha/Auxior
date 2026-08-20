@@ -64,7 +64,7 @@ fn main() -> std::io::Result<()> {
                             ),
                     )
                     .child(Text::new("Footer — q to quit"))
-                    .child(Bar::new().width(6).fill(0.7).bg(Color::Black)),
+                    .child(Bar::new().width(6).fill(0.98).bg(Color::Black)),
             )
             .render(&mut canvas);
 
