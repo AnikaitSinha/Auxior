@@ -1,4 +1,4 @@
-use auxior::{App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, Text};
+use auxior::{App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, StatusBar, Text};
 use crossterm::style::Color;
 
 fn main() -> std::io::Result<()> {
@@ -64,7 +64,13 @@ fn main() -> std::io::Result<()> {
                             ),
                     )
                     .child(Text::new("Footer — q to quit"))
-                    .child(Bar::new().width(6).fill(0.98).bg(Color::Black)),
+                    .child(Bar::new().width(6).fill(0.98).bg(Color::Black))
+                    .child(
+                        StatusBar::new()
+                            .fill(0.5)
+                            .bg(Color::Black)
+                            .label(Text::new("CPU")),
+                    ),
             )
             .render(&mut canvas);
 

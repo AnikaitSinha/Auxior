@@ -6,7 +6,7 @@ mod scroll_graph;
 mod text;
 mod widget;
 
-pub use bar::Bar;
+pub use bar::{interpolate_color, Bar};
 pub use button::{BorderAlign, BorderSide, Button};
 pub use div::{Div, DivOptions};
 pub use flex::{Flex, FlexDirection};
