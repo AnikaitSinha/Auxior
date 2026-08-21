@@ -4,7 +4,8 @@ use crate::{
     Canvas, LayoutOptions, ScrollGraph, StatusType, Text, Widget, widgets::interpolate_color,
 };
 
-pub struct StatusScrollGraph {
+// Height is always 1.
+pub struct SparklineGraph {
     layout: LayoutOptions,
 
     fill: f32,
@@ -13,6 +14,7 @@ pub struct StatusScrollGraph {
 
     start_color: Color,
     end_color: Color,
+    color_steps: u8,
 
     label: Option<Text>,
 
@@ -26,15 +28,19 @@ pub struct StatusScrollGraph {
     max: f32,
 }
 
-impl StatusScrollGraph {
+impl SparklineGraph {
     pub fn new() -> Self {
-        StatusScrollGraph {
-            layout: LayoutOptions::default(),
+        SparklineGraph {
+            layout: LayoutOptions {
+                height: Some(1),
+                ..LayoutOptions::default()
+            },
             fill: 0.0,
             out_of: None,
             status_type: StatusType::default(),
             start_color: Color::Rgb { r: 255, g: 0, b: 0 },
             end_color: Color::Rgb { r: 0, g: 255, b: 0 },
+            color_steps: 8,
             label: None,
             min_len_label: 4,
             min_len_bar: 8,
@@ -72,7 +78,6 @@ impl StatusScrollGraph {
     }
 
     // Explicit 0..=1 override when there are no samples yet.
-    // Prefer [`values`](Self::values); status tracks the latest sample.
     pub fn fill(mut self, fill: f32) -> Self {
         self.fill = fill.clamp(0.0, 1.0);
         self
@@ -98,6 +103,12 @@ impl StatusScrollGraph {
         self
     }
 
+    // Discrete gradient stops for the sparkline (e.g. 3 → red / yellow / green).
+    pub fn color_steps(mut self, n: u8) -> Self {
+        self.color_steps = n.max(1);
+        self
+    }
+
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
@@ -113,8 +124,9 @@ impl StatusScrollGraph {
         self
     }
 
-    pub fn height(mut self, n: u16) -> Self {
-        self.layout.height = Some(n);
+    // Height is locked to 1 for sparklines.
+    pub fn height(mut self, _n: u16) -> Self {
+        self.layout.height = Some(1);
         self
     }
 
@@ -154,7 +166,6 @@ impl StatusScrollGraph {
         ((value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
     }
 
-    /// Latest sample as 0..=1, or explicit [`fill`](Self::fill) if empty.
     fn current_ratio(&self) -> f32 {
         self.values
             .last()
@@ -162,7 +173,6 @@ impl StatusScrollGraph {
             .unwrap_or(self.fill.clamp(0.0, 1.0))
     }
 
-    /// Latest raw sample for Actual display.
     fn current_value(&self) -> f32 {
         self.values
             .last()
@@ -170,22 +180,35 @@ impl StatusScrollGraph {
             .unwrap_or_else(|| self.fill * self.out_of.unwrap_or(self.max))
     }
 
+    fn status_color(&self, ratio: f32) -> Color {
+        if ratio <= f32::EPSILON {
+            return Color::Black;
+        }
+        let steps = self.color_steps.max(1);
+        let stepped = if steps == 1 {
+            0.0
+        } else {
+            let idx = ((ratio * steps as f32).floor() as u8).min(steps - 1);
+            idx as f32 / (steps - 1) as f32
+        };
+        interpolate_color(self.start_color, self.end_color, stepped)
+    }
+
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }
 }
 
-impl Default for StatusScrollGraph {
+impl Default for SparklineGraph {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Widget for StatusScrollGraph {
+impl Widget for SparklineGraph {
     fn render(&self, canvas: &mut Canvas) {
         let width = canvas.width();
-        let height = canvas.height();
-        if width == 0 || height == 0 {
+        if width == 0 || canvas.height() == 0 {
             return;
         }
 
@@ -218,6 +241,7 @@ impl Widget for StatusScrollGraph {
 
         ScrollGraph::new()
             .sparkline()
+            .color_steps(self.color_steps)
             .values(self.values.iter().copied())
             .min(self.min)
             .max(self.max)
@@ -228,7 +252,7 @@ impl Widget for StatusScrollGraph {
 
         let status_x = bar_x + bar_w + 1;
         let ratio = self.current_ratio();
-        let status_color = interpolate_color(self.start_color, self.end_color, ratio);
+        let status_color = self.status_color(ratio);
 
         let (value, suffix) = match self.status_type {
             StatusType::Percentage => (format!("{:.0}", ratio * 100.0), "%".to_string()),
@@ -238,16 +262,26 @@ impl Widget for StatusScrollGraph {
             }
         };
 
-        let value_w = (value.chars().count() as u16).min(status_w);
-        Text::new(value)
-            .fg(status_color)
-            .render(&mut canvas.subcanvas(status_x, 0, value_w, 1));
+        let value_len = value.chars().count() as u16;
+        let suffix_len = suffix.chars().count() as u16;
+        let used = value_len.saturating_add(suffix_len).min(status_w);
+        let pad = status_w.saturating_sub(used);
 
-        let suffix_w = status_w.saturating_sub(value_w);
-        if suffix_w > 0 && !suffix.is_empty() {
+        // Right-align so `%` / `/out` stay fixed as digits change.
+        let value_x = status_x + pad;
+        let draw_value_w = value_len.min(status_w.saturating_sub(pad));
+        if draw_value_w > 0 {
+            Text::new(value)
+                .fg(status_color)
+                .render(&mut canvas.subcanvas(value_x, 0, draw_value_w, 1));
+        }
+
+        let suffix_x = value_x.saturating_add(draw_value_w);
+        let draw_suffix_w = status_w.saturating_sub(pad.saturating_add(draw_value_w));
+        if draw_suffix_w > 0 && !suffix.is_empty() {
             Text::new(suffix)
                 .fg(Color::White)
-                .render(&mut canvas.subcanvas(status_x + value_w, 0, suffix_w, 1));
+                .render(&mut canvas.subcanvas(suffix_x, 0, draw_suffix_w, 1));
         }
     }
 
@@ -260,6 +294,6 @@ impl Widget for StatusScrollGraph {
     }
 
     fn default_width(&self) -> u16 {
-        4 + 8 + 5
+        self.min_len_label + self.min_len_bar + self.min_len_status + 2
     }
 }

@@ -1,6 +1,5 @@
 use auxior::{
-    App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, ScrollGraph, StatusScrollGraph,
-    Text,
+    App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, ScrollGraph, SparklineGraph, Text,
 };
 use crossterm::style::Color;
 
@@ -85,10 +84,10 @@ fn main() -> std::io::Result<()> {
                             .flex(1),
                     )
                     .child(
-                        StatusScrollGraph::new()
+                        SparklineGraph::new()
                             .window(window)
                             .range(0.0, 100.0)
-                            .height(1)
+                            .color_steps(3)
                             .label(Text::new("CPU:"))
                             .values(load_history.iter().copied()),
                     )

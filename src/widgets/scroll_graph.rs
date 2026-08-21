@@ -14,18 +14,38 @@ const BRAILLE_DOTS: [[u8; BRAILLE_COLS]; BRAILLE_ROWS] = [
     [0x40, 0x80], // row 3 (bottom)
 ];
 
+// Quantize `t` into `steps` discrete gradient stops (inclusive endpoints).
+fn discrete_factor(t: f32, steps: u8) -> f32 {
+    let steps = steps.max(1);
+    if steps == 1 {
+        return 0.0;
+    }
+    let t = t.clamp(0.0, 1.0);
+    let idx = ((t * steps as f32).floor() as u8).min(steps - 1);
+    idx as f32 / (steps - 1) as f32
+}
+
+fn sparkline_color(start: Color, end: Color, t: f32, steps: u8) -> Color {
+    if t <= f32::EPSILON {
+        return Color::Black;
+    }
+    interpolate_color(start, end, discrete_factor(t, steps))
+}
+
 // Scrolling line/area graph rendered with braille characters.
 pub struct ScrollGraph {
     layout: LayoutOptions,
     start_color: Color,
     end_color: Color,
     values: Vec<f32>,
-    // Number of data values represented across the full graph width.
+    //Number of data values represented across the full graph width.
     window: usize,
     min: f32,
     max: f32,
     // Single-row sparkline: per-cell color by value, minimum bottom dots.
     sparkline: bool,
+    // How many discrete colors the sparkline gradient uses (e.g. 3 → red/yellow/green).
+    sparkline_color_steps: u8,
 }
 
 impl ScrollGraph {
@@ -47,13 +67,21 @@ impl ScrollGraph {
             min: 0.0,
             max: 1.0,
             sparkline: false,
+            sparkline_color_steps: 8,
         }
     }
 
-    // Single-row mode: each braille cell is colored by its value, and columns
-    // with data always show at least the bottom dots (never a blank cell).
+    // Single-row mode: each braille cell is colored by its value.
+    // Near-zero values render as a single black bottom braille dot.
     pub fn sparkline(mut self) -> Self {
         self.sparkline = true;
+        self.layout.height = Some(1);
+        self
+    }
+
+    // Number of discrete colors along the sparkline gradient (minimum 1).
+    pub fn color_steps(mut self, n: u8) -> Self {
+        self.sparkline_color_steps = n.max(1);
         self
     }
 
@@ -136,7 +164,8 @@ impl ScrollGraph {
     }
 
     pub fn height(mut self, n: u16) -> Self {
-        self.layout.height = Some(n);
+        // Sparklines are always one row tall.
+        self.layout.height = Some(if self.sparkline { 1 } else { n });
         self
     }
 
@@ -208,7 +237,6 @@ impl Widget for ScrollGraph {
         let dot_cols = width * BRAILLE_COLS;
         let dot_rows = height * BRAILLE_ROWS;
 
-        // filled[col][row] — row 0 is the top of the graph
         let mut filled = vec![vec![false; dot_rows]; dot_cols];
         let mut col_value: Vec<Option<f32>> = vec![None; dot_cols];
         let denom = (dot_cols.saturating_sub(1)).max(1) as f32;
@@ -223,6 +251,14 @@ impl Widget for ScrollGraph {
                 continue;
             };
             col_value[col] = Some(value);
+
+            if self.sparkline && value <= f32::EPSILON {
+                // Single bottom-left braille dot only (left half of the cell).
+                if col % BRAILLE_COLS == 0 {
+                    filled[col][dot_rows - 1] = true;
+                }
+                continue;
+            }
 
             let mut filled_from_bottom = (value * dot_rows as f32).round() as usize;
             filled_from_bottom = filled_from_bottom.min(dot_rows);
@@ -269,7 +305,12 @@ impl Widget for ScrollGraph {
                     } else {
                         0.0
                     };
-                    interpolate_color(self.start_color, self.end_color, t)
+                    sparkline_color(
+                        self.start_color,
+                        self.end_color,
+                        t,
+                        self.sparkline_color_steps,
+                    )
                 } else {
                     let color_t = if height == 1 {
                         0.5
@@ -339,7 +380,6 @@ mod tests {
             .height(1);
         let buf = render_graph(&graph, 1, 1);
         let ch = buf.get(0, 0).unwrap().ch;
-        // Bottom two rows of both columns: dots 3,6,7,8 → bits 0x04|0x20|0x40|0x80 = 0xE4
         assert_eq!(ch, '\u{28e4}');
     }
 
@@ -404,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn sparkline_near_zero_keeps_bottom_dots() {
+    fn sparkline_zero_is_black_single_bottom_dot() {
         let graph = ScrollGraph::new()
             .sparkline()
             .window(2)
@@ -412,8 +452,29 @@ mod tests {
             .width(1)
             .height(1);
         let buf = render_graph(&graph, 1, 1);
-        // Bottom row both cols: dots 7|8 = 0x40|0x80 = 0xC0
-        assert_eq!(buf.get(0, 0).unwrap().ch, '\u{28c0}');
+        // Bottom-left braille dot only: 0x40
+        assert_eq!(buf.get(0, 0).unwrap().ch, '\u{2840}');
+        assert_eq!(buf.get(0, 0).unwrap().fg, Color::Black);
+    }
+
+    #[test]
+    fn sparkline_color_steps_are_discrete() {
+        let start = Color::Rgb { r: 255, g: 0, b: 0 };
+        let end = Color::Rgb { r: 0, g: 255, b: 0 };
+        // 3 steps → 0, 0.5, 1.0 factors only
+        assert_eq!(
+            sparkline_color(start, end, 0.1, 3),
+            interpolate_color(start, end, 0.0)
+        );
+        assert_eq!(
+            sparkline_color(start, end, 0.5, 3),
+            interpolate_color(start, end, 0.5)
+        );
+        assert_eq!(
+            sparkline_color(start, end, 0.9, 3),
+            interpolate_color(start, end, 1.0)
+        );
+        assert_eq!(sparkline_color(start, end, 0.0, 3), Color::Black);
     }
 
     #[test]
@@ -422,8 +483,9 @@ mod tests {
         let high = Color::Rgb { r: 0, g: 255, b: 0 };
         let graph = ScrollGraph::new()
             .sparkline()
+            .color_steps(8)
             .window(2)
-            .values([0.0, 1.0])
+            .values([0.25, 1.0])
             .start_color(low)
             .end_color(high)
             .width(2)
@@ -435,7 +497,6 @@ mod tests {
         let Color::Rgb { r: rr, g: rg, .. } = buf.get(1, 0).unwrap().fg else {
             panic!("expected rgb");
         };
-        // Left cell is lower → more start (red); right is higher → more end (green).
         assert!(lr > rr);
         assert!(rg > lg);
     }

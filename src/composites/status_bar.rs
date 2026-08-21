@@ -188,16 +188,26 @@ impl Widget for StatusBar {
             }
         };
 
-        let value_w = (value.chars().count() as u16).min(status_w);
-        Text::new(value)
-            .fg(status_color)
-            .render(&mut canvas.subcanvas(status_x, 0, value_w, 1));
+        let value_len = value.chars().count() as u16;
+        let suffix_len = suffix.chars().count() as u16;
+        let used = value_len.saturating_add(suffix_len).min(status_w);
+        let pad = status_w.saturating_sub(used);
 
-        let suffix_w = status_w.saturating_sub(value_w);
-        if suffix_w > 0 && !suffix.is_empty() {
+        // Right-align so `%` / `/out` stay fixed as digits change.
+        let value_x = status_x + pad;
+        let draw_value_w = value_len.min(status_w.saturating_sub(pad));
+        if draw_value_w > 0 {
+            Text::new(value)
+                .fg(status_color)
+                .render(&mut canvas.subcanvas(value_x, 0, draw_value_w, 1));
+        }
+
+        let suffix_x = value_x.saturating_add(draw_value_w);
+        let draw_suffix_w = status_w.saturating_sub(pad.saturating_add(draw_value_w));
+        if draw_suffix_w > 0 && !suffix.is_empty() {
             Text::new(suffix)
-                .fg(Color::Reset)
-                .render(&mut canvas.subcanvas(status_x + value_w, 0, suffix_w, 1));
+                .fg(Color::White)
+                .render(&mut canvas.subcanvas(suffix_x, 0, draw_suffix_w, 1));
         }
     }
 
@@ -210,6 +220,6 @@ impl Widget for StatusBar {
     }
 
     fn default_width(&self) -> u16 {
-        4 + 8 + 5
+        self.min_len_label + self.min_len_bar + self.min_len_status + 2
     }
 }
