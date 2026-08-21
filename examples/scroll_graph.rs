@@ -1,4 +1,7 @@
-use auxior::{App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, ScrollGraph, Text};
+use auxior::{
+    App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, ScrollGraph, StatusScrollGraph,
+    Text,
+};
 use crossterm::style::Color;
 
 fn trim(history: &mut Vec<f32>, window: usize) {
@@ -10,7 +13,7 @@ fn trim(history: &mut Vec<f32>, window: usize) {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::with_config(AppConfig::new().target_fps(1))?;
+    let mut app = App::with_config(AppConfig::new().target_fps(60))?;
     let mut cpu_history: Vec<f32> = Vec::new();
     let mut load_history: Vec<f32> = Vec::new();
     let mut tick = 0_u64;
@@ -80,6 +83,14 @@ fn main() -> std::io::Result<()> {
                             })
                             .values(cpu_history.iter().copied())
                             .flex(1),
+                    )
+                    .child(
+                        StatusScrollGraph::new()
+                            .window(window)
+                            .range(0.0, 100.0)
+                            .height(1)
+                            .label(Text::new("CPU:"))
+                            .values(load_history.iter().copied()),
                     )
                     .child(
                         ScrollGraph::new()

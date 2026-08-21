@@ -20,10 +20,12 @@ pub struct ScrollGraph {
     start_color: Color,
     end_color: Color,
     values: Vec<f32>,
-    // Number of data values represented across the full graph width
+    // Number of data values represented across the full graph width.
     window: usize,
     min: f32,
     max: f32,
+    // Single-row sparkline: per-cell color by value, minimum bottom dots.
+    sparkline: bool,
 }
 
 impl ScrollGraph {
@@ -44,7 +46,15 @@ impl ScrollGraph {
             window: 60,
             min: 0.0,
             max: 1.0,
+            sparkline: false,
         }
+    }
+
+    // Single-row mode: each braille cell is colored by its value, and columns
+    // with data always show at least the bottom dots (never a blank cell).
+    pub fn sparkline(mut self) -> Self {
+        self.sparkline = true;
+        self
     }
 
     pub fn start_color(mut self, color: Color) -> Self {
@@ -57,16 +67,13 @@ impl ScrollGraph {
         self
     }
 
-    /// How many sample values the full width represents.
-    ///
-    /// When rendering, each braille column samples this window via linear
-    /// interpolation, so the graph stays smooth as width changes.
+    // How many sample values the full width represents.
     pub fn window(mut self, n: usize) -> Self {
         self.window = n.max(1);
         self
     }
 
-    /// Value range mapped to the full graph height.
+    // Value range mapped to the full graph height.
     pub fn range(mut self, min: f32, max: f32) -> Self {
         self.min = min;
         self.max = if max <= min { min + 1.0 } else { max };
@@ -89,13 +96,13 @@ impl ScrollGraph {
         self
     }
 
-    /// Replace the sample buffer (oldest → newest).
+    // Replace the sample buffer (oldest → newest).
     pub fn values(mut self, values: impl IntoIterator<Item = f32>) -> Self {
         self.values = values.into_iter().collect();
         self
     }
 
-    /// Append a sample, trimming to roughly `window` when oversized.
+    // Append a sample, trimming to roughly `window` when oversized.
     pub fn push(&mut self, value: f32) {
         self.values.push(value);
         let keep = self.window.saturating_mul(2).max(self.window);
@@ -146,11 +153,7 @@ impl ScrollGraph {
         ((value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
     }
 
-    /// Sample at horizontal position `t` in `[0, 1]` (left → right).
-    ///
-    /// Samples are right-aligned inside [`window`](Self::window): until the
-    /// buffer fills the window, the left side stays empty instead of stretching.
-    fn sample_at(&self, t: f32) -> f32 {
+    fn sample_at(&self, t: f32) -> Option<f32> {
         let window = self.window.max(1);
         let samples = if self.values.len() >= window {
             &self.values[self.values.len() - window..]
@@ -159,21 +162,19 @@ impl ScrollGraph {
         };
 
         if samples.is_empty() {
-            return 0.0;
+            return None;
         }
 
         let t = t.clamp(0.0, 1.0);
-        // Position in window units [0, window]. Using `window` (not window-1)
-        // keeps each sample one slot wide when underfilled.
         let pos = t * window as f32;
         let start = (window - samples.len()) as f32;
         if pos < start {
-            return 0.0;
+            return None;
         }
 
         let local = pos - start;
         if samples.len() == 1 {
-            return self.normalize(samples[0]);
+            return Some(self.normalize(samples[0]));
         }
 
         let max_i = samples.len() - 1;
@@ -182,7 +183,7 @@ impl ScrollGraph {
         let frac = (local - i as f32).clamp(0.0, 1.0);
         let a = self.normalize(samples[i]);
         let b = self.normalize(samples[j]);
-        a + (b - a) * frac
+        Some(a + (b - a) * frac)
     }
 }
 
@@ -195,7 +196,11 @@ impl Default for ScrollGraph {
 impl Widget for ScrollGraph {
     fn render(&self, canvas: &mut Canvas) {
         let width = canvas.width() as usize;
-        let height = canvas.height() as usize;
+        let height = if self.sparkline {
+            1.min(canvas.height() as usize)
+        } else {
+            canvas.height() as usize
+        };
         if width == 0 || height == 0 {
             return;
         }
@@ -205,6 +210,7 @@ impl Widget for ScrollGraph {
 
         // filled[col][row] — row 0 is the top of the graph
         let mut filled = vec![vec![false; dot_rows]; dot_cols];
+        let mut col_value: Vec<Option<f32>> = vec![None; dot_cols];
         let denom = (dot_cols.saturating_sub(1)).max(1) as f32;
 
         for col in 0..dot_cols {
@@ -213,9 +219,16 @@ impl Widget for ScrollGraph {
             } else {
                 col as f32 / denom
             };
-            let value = self.sample_at(t);
-            let filled_from_bottom = (value * dot_rows as f32).round() as usize;
-            let filled_from_bottom = filled_from_bottom.min(dot_rows);
+            let Some(value) = self.sample_at(t) else {
+                continue;
+            };
+            col_value[col] = Some(value);
+
+            let mut filled_from_bottom = (value * dot_rows as f32).round() as usize;
+            filled_from_bottom = filled_from_bottom.min(dot_rows);
+            if self.sparkline {
+                filled_from_bottom = filled_from_bottom.max(1);
+            }
             for row_from_bottom in 0..filled_from_bottom {
                 let row = dot_rows - 1 - row_from_bottom;
                 filled[col][row] = true;
@@ -225,22 +238,21 @@ impl Widget for ScrollGraph {
         let row_denom = (height.saturating_sub(1)).max(1) as f32;
 
         for cy in 0..height {
-            let color_t = if height == 1 {
-                0.5
-            } else {
-                // 0 at top → start_color, 1 at bottom → end_color
-                cy as f32 / row_denom
-            };
-            let color = interpolate_color(self.start_color, self.end_color, color_t);
-
             for cx in 0..width {
                 let mut bits: u8 = 0;
+                let mut value_sum = 0.0_f32;
+                let mut value_n = 0_u32;
+
                 for (local_row, masks) in BRAILLE_DOTS.iter().enumerate() {
                     for (local_col, mask) in masks.iter().enumerate() {
                         let col = cx * BRAILLE_COLS + local_col;
                         let row = cy * BRAILLE_ROWS + local_row;
                         if filled[col][row] {
                             bits |= mask;
+                        }
+                        if let Some(v) = col_value[col] {
+                            value_sum += v;
+                            value_n += 1;
                         }
                     }
                 }
@@ -250,7 +262,26 @@ impl Widget for ScrollGraph {
                 } else {
                     char::from_u32(0x2800 + bits as u32).unwrap_or(' ')
                 };
-                canvas.set(cx as u16, cy as u16, Cell::with_fg(ch, color));
+
+                let color = if self.sparkline {
+                    let t = if value_n > 0 {
+                        value_sum / value_n as f32
+                    } else {
+                        0.0
+                    };
+                    interpolate_color(self.start_color, self.end_color, t)
+                } else {
+                    let color_t = if height == 1 {
+                        0.5
+                    } else {
+                        cy as f32 / row_denom
+                    };
+                    interpolate_color(self.start_color, self.end_color, color_t)
+                };
+
+                if bits != 0 || !self.sparkline {
+                    canvas.set(cx as u16, cy as u16, Cell::with_fg(ch, color));
+                }
             }
         }
     }
@@ -295,7 +326,6 @@ mod tests {
             .width(2)
             .height(1);
         let buf = render_graph(&graph, 2, 1);
-        // Full 2x4 braille cell = all 8 dots = U+28FF
         assert_eq!(buf.get(0, 0).unwrap().ch, '\u{28ff}');
         assert_eq!(buf.get(1, 0).unwrap().ch, '\u{28ff}');
     }
@@ -320,9 +350,9 @@ mod tests {
             .values([0.0, 1.0])
             .width(2)
             .height(1);
-        let left = graph.sample_at(0.0);
-        let mid = graph.sample_at(0.5);
-        let right = graph.sample_at(0.999);
+        let left = graph.sample_at(0.0).unwrap();
+        let mid = graph.sample_at(0.5).unwrap();
+        let right = graph.sample_at(0.999).unwrap();
         assert!((left - 0.0).abs() < 0.01);
         assert!((mid - 1.0).abs() < 0.01);
         assert!((right - 1.0).abs() < 0.01);
@@ -336,12 +366,10 @@ mod tests {
             .width(10)
             .height(1);
 
-        // Left of the right-aligned samples stays empty.
-        assert!((graph.sample_at(0.0) - 0.0).abs() < f32::EPSILON);
-        assert!((graph.sample_at(0.5) - 0.0).abs() < f32::EPSILON);
-        // Only the rightmost ~2/10 of the width has data.
-        assert!(graph.sample_at(0.85) > 0.5);
-        assert!((graph.sample_at(0.95) - 1.0).abs() < 0.01);
+        assert!(graph.sample_at(0.0).is_none());
+        assert!(graph.sample_at(0.5).is_none());
+        assert!(graph.sample_at(0.85).unwrap() > 0.5);
+        assert!((graph.sample_at(0.95).unwrap() - 1.0).abs() < 0.01);
     }
 
     #[test]
@@ -373,5 +401,42 @@ mod tests {
         let buf = render_graph(&graph, 1, 2);
         assert_eq!(buf.get(0, 0).unwrap().fg, Color::Rgb { r: 255, g: 0, b: 0 });
         assert_eq!(buf.get(0, 1).unwrap().fg, Color::Rgb { r: 0, g: 0, b: 255 });
+    }
+
+    #[test]
+    fn sparkline_near_zero_keeps_bottom_dots() {
+        let graph = ScrollGraph::new()
+            .sparkline()
+            .window(2)
+            .values([0.0, 0.0])
+            .width(1)
+            .height(1);
+        let buf = render_graph(&graph, 1, 1);
+        // Bottom row both cols: dots 7|8 = 0x40|0x80 = 0xC0
+        assert_eq!(buf.get(0, 0).unwrap().ch, '\u{28c0}');
+    }
+
+    #[test]
+    fn sparkline_colors_cells_by_value() {
+        let low = Color::Rgb { r: 255, g: 0, b: 0 };
+        let high = Color::Rgb { r: 0, g: 255, b: 0 };
+        let graph = ScrollGraph::new()
+            .sparkline()
+            .window(2)
+            .values([0.0, 1.0])
+            .start_color(low)
+            .end_color(high)
+            .width(2)
+            .height(1);
+        let buf = render_graph(&graph, 2, 1);
+        let Color::Rgb { r: lr, g: lg, .. } = buf.get(0, 0).unwrap().fg else {
+            panic!("expected rgb");
+        };
+        let Color::Rgb { r: rr, g: rg, .. } = buf.get(1, 0).unwrap().fg else {
+            panic!("expected rgb");
+        };
+        // Left cell is lower → more start (red); right is higher → more end (green).
+        assert!(lr > rr);
+        assert!(rg > lg);
     }
 }
