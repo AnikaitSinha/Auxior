@@ -2,6 +2,10 @@
 name = "auxior"
 version = "0.1.0"
 edition = "2024"
+license = "LGPL-3.0-or-later"
+authors = ["Anikait Sinha <anikaitsinha@gmail.com>"]
+description = "A terminal UI library for Rust"
+repository = "https://github.com/AnikaitSinha/Auxior"
 
 [dependencies]
 crossterm = "0.28"

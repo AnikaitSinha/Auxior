@@ -52,6 +52,9 @@ pub enum ControlFlow {
 pub struct App {
     terminal: Terminal,
     config: AppConfig,
+    previous: Buffer,
+    current: Buffer,
+    first_frame: bool,
 }
 
 impl App {
