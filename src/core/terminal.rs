@@ -3,13 +3,13 @@ use std::io::{self, Write};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     execute,
-    style::{Attribute, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
+    style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{
         EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
     },
 };
 
-use crate::Buffer;
+use crate::{Buffer, Cell};
 
 pub struct Terminal {
     width: u16,
@@ -64,6 +64,7 @@ impl Terminal {
         Self::flush_to(buffer, &mut io::stdout())
     }
 
+    // Deprecated
     fn flush_to<W: Write>(buffer: &Buffer, writer: &mut W) -> io::Result<()> {
         let mut last_fg = None;
         let mut last_bg = None;
@@ -128,9 +129,115 @@ impl Terminal {
                 execute!(writer, Print(cell.ch))?;
             }
         }
+        writer.flush()?;
+        Ok(())
+    }
+
+    // new optimized flush technique
+    fn write_cell<W: Write>(
+        writer: &mut W,
+        x: u16,
+        y: u16,
+        cell: &Cell,
+        last_fg: &mut Option<Color>,
+        last_bg: &mut Option<Color>,
+        last_b: &mut Option<bool>,
+        last_i: &mut Option<bool>,
+        last_u: &mut Option<bool>,
+    ) -> io::Result<()> {
+        execute!(writer, MoveTo(x, y))?;
+
+        if *last_fg != Some(cell.fg) {
+            execute!(writer, SetForegroundColor(cell.fg))?;
+            *last_fg = Some(cell.fg);
+        }
+
+        if *last_bg != Some(cell.bg) {
+            execute!(writer, SetBackgroundColor(cell.bg))?;
+            *last_bg = Some(cell.bg);
+        }
+
+        if *last_b != Some(cell.b) {
+            execute!(
+                writer,
+                SetAttribute(if cell.b {
+                    Attribute::Bold
+                } else {
+                    Attribute::NormalIntensity
+                })
+            )?;
+            *last_b = Some(cell.b);
+        }
+
+        if *last_i != Some(cell.i) {
+            execute!(
+                writer,
+                SetAttribute(if cell.i {
+                    Attribute::Italic
+                } else {
+                    Attribute::NoItalic
+                })
+            )?;
+            *last_i = Some(cell.i);
+        }
+
+        if *last_u != Some(cell.u) {
+            execute!(
+                writer,
+                SetAttribute(if cell.u {
+                    Attribute::Underlined
+                } else {
+                    Attribute::NoUnderline
+                })
+            )?;
+            *last_u = Some(cell.u);
+        }
+
+        execute!(writer, Print(cell.ch))?;
+        Ok(())
+    }
+
+    fn flush_cells_to<W: Write>(
+        buffer: &Buffer,
+        coords: &[(u16, u16)],
+        writer: &mut W,
+    ) -> io::Result<()> {
+        if coords.is_empty() {
+            return Ok(());
+        }
+
+        let mut last_fg = None;
+        let mut last_bg = None;
+        let mut last_b = None;
+        let mut last_i = None;
+        let mut last_u = None;
+
+        let mut sorted = coords.to_vec();
+        sorted.sort_unstable();
+
+        for (x, y) in sorted {
+            let Some(cell) = buffer.get(x, y) else {
+                continue;
+            };
+            Self::write_cell(
+                writer,
+                x,
+                y,
+                cell,
+                &mut last_fg,
+                &mut last_bg,
+                &mut last_b,
+                &mut last_i,
+                &mut last_u,
+            )?;
+        }
 
         writer.flush()?;
         Ok(())
+    }
+
+    pub(crate) fn flush_cells(&self, buffer: &Buffer, coords: &[(u16, u16)]) -> io::Result<()> {
+        Self::flush_cells_to(buffer, coords, &mut io::stdout())
     }
 
     fn restore(&mut self) -> io::Result<()> {

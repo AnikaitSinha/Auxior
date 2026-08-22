@@ -1,7 +1,7 @@
 // import crossterm Color enum
 use crossterm::style::Color;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct Cell {
     pub ch: char,
     pub fg: Color,
