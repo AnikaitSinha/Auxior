@@ -1,4 +1,4 @@
-use crate::{Area, Canvas, Cell, Text};
+use crate::{Area, Canvas, Cell, RenderContext, Text};
 
 use super::button::{BorderAlign, BorderSide, Button};
 use super::widget::{LayoutOptions, Widget};
@@ -10,6 +10,7 @@ pub struct DivOptions {
     pub border_buttons: Vec<Button>,
     pub padding: u16,
     pub layout: LayoutOptions,
+    pub dirty: bool,
 }
 
 impl Default for DivOptions {
@@ -20,6 +21,7 @@ impl Default for DivOptions {
             border_buttons: Vec::new(),
             padding: 0,
             layout: LayoutOptions::default(),
+            dirty: true,
         }
     }
 }
@@ -118,6 +120,11 @@ impl Div {
         self
     }
 
+    pub fn dirty(mut self, on: bool) -> Self {
+        self.options.dirty = on;
+        self
+    }
+
     /// Render this div onto the canvas.
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
@@ -136,6 +143,21 @@ impl Div {
 
         let content = content_area(canvas, &self.options);
         render_children(&self.children, canvas, content);
+    }
+
+    fn render_content_with_context(&self, canvas: &mut Canvas, ctx: &mut RenderContext) {
+        if self.options.border {
+            draw_border(
+                canvas,
+                self.options.title.as_ref(),
+                &self.options.border_buttons,
+            );
+        } else if let Some(title) = &self.options.title {
+            draw_title(canvas, title);
+        }
+
+        let content = content_area(canvas, &self.options);
+        render_children_incremental(&self.children, canvas, content, ctx);
     }
 }
 
@@ -161,6 +183,41 @@ impl Widget for Div {
 
     fn default_height(&self) -> u16 {
         if self.options.border { 3 } else { 1 }
+    }
+
+    fn render_with_context(&self, canvas: &mut Canvas, ctx: &mut RenderContext) {
+        let layout = self.layout();
+        let width = layout
+            .width
+            .unwrap_or_else(|| canvas.width())
+            .min(canvas.width());
+        let height = layout
+            .height
+            .unwrap_or_else(|| canvas.height())
+            .min(canvas.height());
+        let global = Area::new(canvas.origin().0, canvas.origin().1, width, height);
+
+        if !self.options.dirty && !ctx.force_full {
+            // Copy this div's pixels from previous frame
+            canvas
+                .buffer_mut()
+                .copy_region(global, ctx.previous, global);
+
+            // Still render dirty children (critical!)
+            let mut div_canvas = canvas.subcanvas(0, 0, width, height);
+            let content = content_area(&div_canvas, &self.options);
+            render_children_incremental(&self.children, &mut div_canvas, content, ctx);
+            return; // do NOT mark_dirty — this region didn't change
+        }
+
+        // Dirty div: full render
+        let mut div_canvas = canvas.subcanvas(0, 0, width, height);
+        self.render_content_with_context(&mut div_canvas, ctx);
+        ctx.mark_dirty(global);
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.options.dirty
     }
 }
 
@@ -257,6 +314,41 @@ fn render_children(children: &[Box<dyn Widget>], canvas: &mut Canvas, area: Area
     }
 }
 
+fn render_children_incremental(
+    children: &[Box<dyn Widget>],
+    canvas: &mut Canvas,
+    area: Area,
+    ctx: &mut RenderContext,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let mut flow_y = area.y;
+
+    for child in children {
+        if !child.is_dirty() && !ctx.force_full {
+            continue;
+        }
+
+        let child_area = resolve_child_area(child.as_ref(), area, &mut flow_y);
+
+        if child_area.x >= area.x.saturating_add(area.width)
+            || child_area.y >= area.y.saturating_add(area.height)
+        {
+            continue;
+        }
+
+        let mut child_canvas = canvas.subcanvas(
+            child_area.x,
+            child_area.y,
+            child_area.width,
+            child_area.height,
+        );
+        child.render_with_context(&mut child_canvas, ctx);
+    }
+}
+
 fn draw_border(canvas: &mut Canvas, title: Option<&Text>, buttons: &[Button]) {
     let w = canvas.width();
     let h = canvas.height();
@@ -296,10 +388,9 @@ fn draw_horizontal_border(
     occupied[(w - 1) as usize] = true;
 
     let mut x = 1_u16;
-    for button in buttons
-        .iter()
-        .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::Start)
-    {
+    for button in buttons.iter().filter(|button| {
+        button.border_side() == Some(side) && button.border_align() == BorderAlign::Start
+    }) {
         let width = button
             .default_width()
             .min(w.saturating_sub(x).saturating_sub(1));
@@ -338,7 +429,9 @@ fn draw_horizontal_border(
     let mut end_x = w.saturating_sub(2);
     for button in buttons
         .iter()
-        .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::End)
+        .filter(|button| {
+            button.border_side() == Some(side) && button.border_align() == BorderAlign::End
+        })
         .rev()
     {
         let width = button.default_width().min(end_x);
@@ -369,10 +462,9 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
     occupied[(h - 1) as usize] = true;
 
     let mut y = 1_u16;
-    for button in buttons
-        .iter()
-        .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::Start)
-    {
+    for button in buttons.iter().filter(|button| {
+        button.border_side() == Some(side) && button.border_align() == BorderAlign::Start
+    }) {
         let segment: Vec<char> = button.display_text().chars().collect();
         let height = (segment.len() as u16).min(h.saturating_sub(y).saturating_sub(1));
         if height == 0 {
@@ -391,7 +483,9 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
     let mut end_y = h.saturating_sub(2);
     for button in buttons
         .iter()
-        .filter(|button| button.border_side() == Some(side) && button.border_align() == BorderAlign::End)
+        .filter(|button| {
+            button.border_side() == Some(side) && button.border_align() == BorderAlign::End
+        })
         .rev()
     {
         let segment: Vec<char> = button.display_text().chars().collect();

@@ -1,14 +1,20 @@
+use std::cell::Cell;
 use std::fs;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use auxior::{App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, Text};
+use auxior::{
+    App, AppConfig, AppEvent, Area, BorderAlign, BorderSide, Button, Canvas, Cell as AuxCell,
+    ControlFlow, Div, Flex, FrameStats, Text, Widget,
+};
+use crossterm::event::{KeyCode, KeyEvent};
 use crossterm::style::Color;
 
 const TARGET_FPS: u64 = 60;
-/// Linux USER_HZ; process CPU times in `/proc/self/stat` are in these ticks.
+// Linux USER_HZ; process CPU times in `/proc/self/stat` are in these ticks.
 const CLOCK_TICKS: f32 = 100.0;
 
-/// utime + stime from `/proc/self/stat` (fields 14 and 15).
+// utime + stime from `/proc/self/stat` (fields 14 and 15).
 fn read_process_cpu_ticks() -> Option<u64> {
     let contents = fs::read_to_string("/proc/self/stat").ok()?;
     let rest = contents.split(')').nth(1)?;
@@ -52,6 +58,30 @@ fn format_mib(kib: u64) -> String {
     format!("{:.1} MiB", kib as f64 / 1024.0)
 }
 
+fn pct(part: usize, total: u64) -> f32 {
+    if total == 0 {
+        return 0.0;
+    }
+    (part as f32 / total as f32) * 100.0
+}
+
+fn draw_diff_overlay(buf: &mut auxior::Buffer, stats: &FrameStats) {
+    for &(x, y) in &stats.flushed_coords {
+        buf.set(
+            x,
+            y,
+            AuxCell::with_fg(
+                '·',
+                Color::Rgb {
+                    r: 255,
+                    g: 80,
+                    b: 80,
+                },
+            ),
+        );
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let mut app = App::with_config(AppConfig::new().target_fps(TARGET_FPS))?;
 
@@ -69,9 +99,29 @@ fn main() -> std::io::Result<()> {
     let mut rss_kib = 0_u64;
     let mut vsize_kib = 0_u64;
 
-    app.run(move |buf, _events| {
+    let incremental_mode = Rc::new(Cell::new(true));
+    let show_diff_overlay = Rc::new(Cell::new(false));
+
+    app.run(move |buf, _previous, events, ctx, frame_stats| {
         let frame_start = Instant::now();
         frames_in_window += 1;
+
+        for event in events {
+            if let AppEvent::Key(KeyEvent {
+                code: KeyCode::Char('m'),
+                ..
+            }) = event
+            {
+                incremental_mode.set(!incremental_mode.get());
+            }
+            if let AppEvent::Key(KeyEvent {
+                code: KeyCode::Char('v'),
+                ..
+            }) = event
+            {
+                show_diff_overlay.set(!show_diff_overlay.get());
+            }
+        }
 
         if last_stats.elapsed().as_millis() >= 250 {
             if let Some(next_ticks) = read_process_cpu_ticks() {
@@ -92,16 +142,25 @@ fn main() -> std::io::Result<()> {
             fps_window_start = Instant::now();
         }
 
-        buf.fill(Cell::empty());
+        let incremental = incremental_mode.get();
+        if !incremental {
+            ctx.force_full = true;
+            buf.fill(AuxCell::empty());
+        }
+
         let area = Area::new_from_buffer(buf);
         let mut canvas = Canvas::new(buf, area);
 
-        let panel_w = 34_u16;
-        let panel_h = 12_u16;
-        // Outer border(1) + padding(1) → content starts at (2, 2).
+        let panel_w = 40_u16;
+        let panel_h = 16_u16;
         let content_w = area.width.saturating_sub(4);
         let stats_x = content_w.saturating_sub(panel_w);
-        let cells = area.width as u64 * area.height as u64;
+
+        let mode_label = if incremental { "incremental" } else { "full" };
+        let overlay_label = if show_diff_overlay.get() { "on" } else { "off" };
+
+        let checked_pct = pct(frame_stats.checked_cells, frame_stats.total_cells);
+        let flushed_pct = pct(frame_stats.flushed_cells, frame_stats.total_cells);
 
         let stats = Flex::column()
             .gap(0)
@@ -111,12 +170,43 @@ fn main() -> std::io::Result<()> {
             .child(Text::new(format!("proc cpu     {cpu_pct:5.1}%")).fg(Color::Magenta))
             .child(Text::new(format!("proc rss     {}", format_mib(rss_kib))).fg(Color::Cyan))
             .child(Text::new(format!("proc vsize   {}", format_mib(vsize_kib))).fg(Color::Cyan))
+            .child(Text::new("─ diff (last frame) ─").fg(Color::DarkGrey))
             .child(
                 Text::new(format!(
-                    "cells/frame  {cells}  ({}x{})",
-                    area.width, area.height
+                    "checked      {} / {}  ({checked_pct:4.1}%)",
+                    frame_stats.checked_cells, frame_stats.total_cells
                 ))
-                .fg(Color::DarkGrey),
+                .fg(Color::Yellow),
+            )
+            .child(
+                Text::new(format!(
+                    "flushed      {} / {}  ({flushed_pct:4.1}%)",
+                    frame_stats.flushed_cells, frame_stats.total_cells
+                ))
+                .fg(Color::Green),
+            )
+            .child(
+                Text::new(format!("dirty regions {}", frame_stats.dirty_regions)).fg(Color::Cyan),
+            )
+            .child(
+                Text::new(format!("render mode  {mode_label}  (m toggle)")).fg(if incremental {
+                    Color::Green
+                } else {
+                    Color::Red
+                }),
+            )
+            .child(
+                Text::new(format!("diff overlay {overlay_label}  (v toggle)")).fg(
+                    if show_diff_overlay.get() {
+                        Color::Rgb {
+                            r: 255,
+                            g: 80,
+                            b: 80,
+                        }
+                    } else {
+                        Color::DarkGrey
+                    },
+                ),
             )
             .child(Text::new("q / Esc quit").fg(Color::DarkGrey));
 
@@ -131,6 +221,20 @@ fn main() -> std::io::Result<()> {
                     })
                     .bold(true),
             )
+            .border_button(
+                Button::border_button(if incremental { "incr" } else { "full" })
+                    .side(BorderSide::Top)
+                    .align(BorderAlign::End),
+            )
+            .border_button(
+                Button::border_button(if show_diff_overlay.get() {
+                    "diff"
+                } else {
+                    "view"
+                })
+                .side(BorderSide::Top)
+                .align(BorderAlign::End),
+            )
             .padding(1)
             .x(stats_x)
             .y(0)
@@ -141,8 +245,13 @@ fn main() -> std::io::Result<()> {
         Div::new()
             .border(true)
             .padding(1)
+            .dirty(!incremental)
             .child(stats_panel)
-            .render(&mut canvas);
+            .render_with_context(&mut canvas, ctx);
+
+        if show_diff_overlay.get() && !frame_stats.flushed_coords.is_empty() {
+            draw_diff_overlay(buf, frame_stats);
+        }
 
         frame_ms = last_frame.elapsed().as_secs_f32() * 1000.0;
         last_frame = frame_start;

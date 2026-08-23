@@ -3,9 +3,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
-use crate::Area;
-
-use super::{Buffer, Terminal, keymap::KeyMap};
+use super::{Buffer, FrameStats, RenderContext, Terminal, keymap::KeyMap};
 
 // Target frame rate and runtime options for [`App`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +55,7 @@ pub struct App {
     previous: Buffer,
     current: Buffer,
     first_frame: bool,
+    frame_stats: FrameStats,
 }
 
 impl App {
@@ -75,8 +74,13 @@ impl App {
             config,
             previous,
             current,
-            first_frame: false,
+            first_frame: true,
+            frame_stats: FrameStats::default(),
         })
+    }
+
+    pub fn frame_stats(&self) -> &FrameStats {
+        &self.frame_stats
     }
 
     pub fn config(&self) -> &AppConfig {
@@ -96,7 +100,7 @@ impl App {
     // If none are pending, the slice contains a single [`AppEvent::Tick`].
     pub fn run<F>(&mut self, mut frame: F) -> io::Result<()>
     where
-        F: FnMut(&mut Buffer, &[AppEvent]) -> ControlFlow,
+        F: FnMut(&mut Buffer, &Buffer, &[AppEvent], &mut RenderContext, &FrameStats) -> ControlFlow,
     {
         let frame_duration = self.config.frame_duration();
         let mut last_frame = Instant::now();
@@ -137,15 +141,36 @@ impl App {
                 self.first_frame = true;
             }
 
-            let control = frame(&mut self.current, &frame_events);
+            if !self.first_frame {
+                self.current.copy_buffer_from(&self.previous);
+            }
+
+            let mut ctx = RenderContext::new(&self.previous);
+            if self.first_frame {
+                ctx.force_full = true;
+            }
+
+            let control = frame(
+                &mut self.current,
+                &self.previous,
+                &frame_events,
+                &mut ctx,
+                &self.frame_stats,
+            );
 
             let coords = if self.first_frame {
                 self.current.all_coords()
             } else {
-                self.current.diff_region(
-                    &self.previous,
-                    Area::new(0, 0, self.current.width, self.current.height),
-                )
+                ctx.diff_coords(&self.current)
+            };
+
+            self.frame_stats = FrameStats {
+                flushed_cells: coords.len(),
+                checked_cells: ctx.checked_cells(&self.current),
+                dirty_regions: ctx.dirty_regions.len(),
+                total_cells: self.current.width as u64 * self.current.height as u64,
+                force_full: ctx.force_full,
+                flushed_coords: coords.clone(),
             };
 
             self.terminal.flush_cells(&self.current, &coords)?;

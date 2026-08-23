@@ -86,6 +86,18 @@ impl<'a> Canvas<'a> {
             height,
         }
     }
+
+    pub fn origin(&self) -> (u16, u16) {
+        (self.x, self.y)
+    }
+
+    pub fn global_area(&self) -> Area {
+        Area::new(self.x, self.y, self.width, self.height)
+    }
+
+    pub fn buffer_mut(&mut self) -> &mut Buffer {
+        self.buffer
+    }
 }
 
 // Test cases

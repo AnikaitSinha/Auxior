@@ -1,7 +1,7 @@
 use std::fs;
 use std::time::Instant;
 
-use auxior::{App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, SparklineGraph, Text};
+use auxior::{App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, SparklineGraph, Text, Widget};
 use crossterm::style::Color;
 
 #[derive(Clone, Copy, Default)]
@@ -82,7 +82,7 @@ fn main() -> std::io::Result<()> {
     let mut histories: Vec<Vec<f32>> = prev.iter().map(|_| Vec::new()).collect();
     let mut last_sample = Instant::now();
 
-    app.run(move |buf, _events| {
+    app.run(move |buf, _previous, _events, ctx, _stats| {
         let now = Instant::now();
         if now.duration_since(last_sample).as_millis() >= 200 {
             let next = read_per_core_times();
@@ -173,7 +173,7 @@ fn main() -> std::io::Result<()> {
             )
             .padding(1)
             .child(cores_panel)
-            .render(&mut canvas);
+            .render_with_context(&mut canvas, ctx);
 
         ControlFlow::Continue
     })?;

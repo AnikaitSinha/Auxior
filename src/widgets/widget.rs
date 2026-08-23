@@ -43,4 +43,12 @@ pub trait Widget {
     fn default_width(&self) -> u16 {
         1
     }
+    fn is_dirty(&self) -> bool {
+        true
+    }
+
+    fn render_with_context(&self, canvas: &mut Canvas, ctx: &mut crate::RenderContext) {
+        self.render(canvas);
+        ctx.mark_dirty(canvas.global_area());
+    }
 }

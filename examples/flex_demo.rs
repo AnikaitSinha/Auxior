@@ -1,10 +1,10 @@
-use auxior::{App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, StatusBar, Text};
+use auxior::{App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, StatusBar, Text, Widget};
 use crossterm::style::Color;
 
 fn main() -> std::io::Result<()> {
     let mut app = App::new()?;
 
-    app.run(|buf, _events| {
+    app.run(|buf, _previous, _events, ctx, _stats| {
         buf.fill(Cell::empty());
 
         let area = Area::new_from_buffer(buf);
@@ -72,7 +72,7 @@ fn main() -> std::io::Result<()> {
                             .label(Text::new("CPU")),
                     ),
             )
-            .render(&mut canvas);
+            .render_with_context(&mut canvas, ctx);
 
         ControlFlow::Continue
     })?;

@@ -88,6 +88,29 @@ impl Buffer {
         }
         changed
     }
+
+    pub fn copy_region(&mut self, dst: Area, src: &Buffer, src_area: Area) {
+        let w = dst
+            .width
+            .min(src_area.width)
+            .min(src.width.saturating_sub(src_area.x));
+        let h = dst
+            .height
+            .min(src_area.height)
+            .min(src.height.saturating_sub(src_area.y));
+
+        for row in 0..h {
+            for col in 0..w {
+                let sx = src_area.x.saturating_add(col);
+                let sy = src_area.y.saturating_add(row);
+                let dx = dst.x.saturating_add(col);
+                let dy = dst.y.saturating_add(row);
+                if let Some(cell) = src.get(sx, sy) {
+                    self.set(dx, dy, *cell);
+                }
+            }
+        }
+    }
 }
 
 // Test cases

@@ -1,11 +1,11 @@
-use auxior::{App, AppConfig, AppEvent, Area, Canvas, Cell, ControlFlow, Div, Text};
+use auxior::{App, AppConfig, AppEvent, Area, Canvas, Cell, ControlFlow, Div, Text, Widget};
 use crossterm::event::{KeyCode, KeyEvent};
 
 fn main() -> std::io::Result<()> {
     let mut app = App::with_config(AppConfig::new().target_fps(60))?;
     let mut count = 0_i32;
 
-    app.run(|buf, events| {
+    app.run(|buf, _previous, events, ctx, _stats| {
         for event in events {
             if let AppEvent::Key(KeyEvent {
                 code: KeyCode::Char('+') | KeyCode::Char('='),
@@ -33,7 +33,7 @@ fn main() -> std::io::Result<()> {
             .padding(1)
             .child(Text::new(format!("Count: {count}")))
             .child(Text::new("+ / - to change, q or Esc to quit"))
-            .render(&mut canvas);
+            .render_with_context(&mut canvas, ctx);
 
         ControlFlow::Continue
     })?;

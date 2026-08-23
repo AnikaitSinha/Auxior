@@ -1,5 +1,6 @@
 use auxior::{
     App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, ScrollGraph, SparklineGraph, Text,
+    Widget,
 };
 use crossterm::style::Color;
 
@@ -18,7 +19,7 @@ fn main() -> std::io::Result<()> {
     let mut tick = 0_u64;
     let window = 120;
 
-    app.run(move |buf, _events| {
+    app.run(move |buf, _previous, _events, ctx, _stats| {
         tick = tick.wrapping_add(1);
 
         // Synthetic CPU-like signal: slow wave + bursts of noise.
@@ -109,7 +110,7 @@ fn main() -> std::io::Result<()> {
                             .values(load_history.iter().copied()),
                     ),
             )
-            .render(&mut canvas);
+            .render_with_context(&mut canvas, ctx);
 
         ControlFlow::Continue
     })?;

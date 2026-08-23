@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use auxior::{App, AppConfig, Area, Button, Canvas, Cell, ControlFlow, Div, Flex, Text};
+use auxior::{App, AppConfig, Area, Button, Canvas, Cell, ControlFlow, Div, Flex, Text, Widget};
 
 #[derive(Clone)]
 struct CounterState {
@@ -39,7 +39,7 @@ fn main() -> std::io::Result<()> {
     let mut app = App::with_config(AppConfig::new().target_fps(60))?;
     let state = CounterState::new();
 
-    app.run(move |buf, _events| {
+    app.run(move |buf, _previous, _events, ctx, _stats| {
         let count = *state.count.borrow();
         let paused = *state.paused.borrow();
 
@@ -85,7 +85,7 @@ fn main() -> std::io::Result<()> {
                             ),
                     ),
             )
-            .render(&mut canvas);
+            .render_with_context(&mut canvas, ctx);
 
         ControlFlow::Continue
     })?;
