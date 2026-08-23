@@ -3,6 +3,8 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
+use crate::Area;
+
 use super::{Buffer, Terminal, keymap::KeyMap};
 
 // Target frame rate and runtime options for [`App`].
@@ -63,9 +65,17 @@ impl App {
     }
 
     pub fn with_config(config: AppConfig) -> io::Result<Self> {
+        let terminal = Terminal::new()?;
+        let (w, h) = terminal.size();
+        let previous = Buffer::new(w, h);
+        let current = Buffer::new(w, h);
+
         Ok(Self {
-            terminal: Terminal::new()?,
+            terminal,
             config,
+            previous,
+            current,
+            first_frame: false,
         })
     }
 
@@ -115,10 +125,33 @@ impl App {
 
             KeyMap::clear();
 
-            let mut control = ControlFlow::Continue;
-            self.terminal.draw(|buf| {
-                control = frame(buf, &frame_events);
-            })?;
+            // let mut control = ControlFlow::Continue;
+
+            if frame_events
+                .iter()
+                .any(|e| matches!(e, AppEvent::Resize { .. }))
+            {
+                let (w, h) = self.terminal.size();
+                self.current = Buffer::new(w, h);
+                self.previous = Buffer::new(w, h);
+                self.first_frame = true;
+            }
+
+            let control = frame(&mut self.current, &frame_events);
+
+            let coords = if self.first_frame {
+                self.current.all_coords()
+            } else {
+                self.current.diff_region(
+                    &self.previous,
+                    Area::new(0, 0, self.current.width, self.current.height),
+                )
+            };
+
+            self.terminal.flush_cells(&self.current, &coords)?;
+
+            std::mem::swap(&mut self.current, &mut self.previous);
+            self.first_frame = false;
 
             KeyMap::dispatch(&frame_events);
 
