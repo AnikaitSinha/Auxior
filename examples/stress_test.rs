@@ -10,7 +10,7 @@ use auxior::{
 use crossterm::event::{KeyCode, KeyEvent};
 use crossterm::style::Color;
 
-const TARGET_FPS: u64 = 60;
+const TARGET_FPS: u64 = 30;
 // Linux USER_HZ; process CPU times in `/proc/self/stat` are in these ticks.
 const CLOCK_TICKS: f32 = 100.0;
 
@@ -235,7 +235,7 @@ fn main() -> std::io::Result<()> {
                 .side(BorderSide::Top)
                 .align(BorderAlign::End),
             )
-            .padding(1)
+            .padding(0)
             .x(stats_x)
             .y(0)
             .width(panel_w)
