@@ -145,20 +145,6 @@ impl Div {
         render_children(&self.children, canvas, content);
     }
 
-    fn render_content_with_context(&self, canvas: &mut Canvas, ctx: &mut RenderContext) {
-        if self.options.border {
-            draw_border(
-                canvas,
-                self.options.title.as_ref(),
-                &self.options.border_buttons,
-            );
-        } else if let Some(title) = &self.options.title {
-            draw_title(canvas, title);
-        }
-
-        let content = content_area(canvas, &self.options);
-        render_children_incremental(&self.children, canvas, content, ctx);
-    }
 }
 
 impl Widget for Div {
@@ -210,9 +196,9 @@ impl Widget for Div {
             return; // do NOT mark_dirty — this region didn't change
         }
 
-        // Dirty div: full render
+        // Dirty div: full render — children use plain render(); only this div marks dirty.
         let mut div_canvas = canvas.subcanvas(0, 0, width, height);
-        self.render_content_with_context(&mut div_canvas, ctx);
+        self.render_content(&mut div_canvas);
         ctx.mark_dirty(global);
     }
 

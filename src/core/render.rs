@@ -53,16 +53,29 @@ impl<'a> RenderContext<'a> {
         coords
     }
 
-    // Cells compared during diff (full buffer when `force_full`, else dirty regions).
+    // Unique cells covered by dirty regions (overlaps counted once).
     pub fn checked_cells(&self, buffer: &Buffer) -> usize {
         if self.force_full {
             return buffer.width as usize * buffer.height as usize;
         }
 
-        self.dirty_regions
-            .iter()
-            .map(|area| area.width as usize * area.height as usize)
-            .sum()
+        if self.dirty_regions.is_empty() {
+            return 0;
+        }
+
+        let mut coords = Vec::new();
+        for area in &self.dirty_regions {
+            let x_end = area.x.saturating_add(area.width).min(buffer.width);
+            let y_end = area.y.saturating_add(area.height).min(buffer.height);
+            for y in area.y..y_end {
+                for x in area.x..x_end {
+                    coords.push((x, y));
+                }
+            }
+        }
+        coords.sort_unstable();
+        coords.dedup();
+        coords.len()
     }
 }
 
@@ -167,13 +180,23 @@ mod tests {
     }
 
     #[test]
-    fn checked_cells_sums_dirty_region_areas() {
+    fn checked_cells_counts_non_overlapping_regions() {
         let previous = Buffer::new(10, 10);
         let mut ctx = RenderContext::new(&previous);
         ctx.mark_dirty(Area::new(0, 0, 2, 3));
         ctx.mark_dirty(Area::new(4, 0, 3, 2));
 
         assert_eq!(ctx.checked_cells(&previous), 6 + 6);
+    }
+
+    #[test]
+    fn checked_cells_dedupes_overlapping_regions() {
+        let previous = Buffer::new(10, 10);
+        let mut ctx = RenderContext::new(&previous);
+        ctx.mark_dirty(Area::new(0, 0, 4, 4));
+        ctx.mark_dirty(Area::new(2, 2, 4, 4));
+
+        assert_eq!(ctx.checked_cells(&previous), 28);
     }
 
     #[test]
