@@ -1,8 +1,8 @@
-use crate::{Canvas, LayoutOptions, Widget};
+use crate::{Canvas, LayoutOptions, Text, Widget};
 
 pub struct List {
     layout: LayoutOptions,
-    elements: Vec<String>,
+    elements: Vec<Text>,
     min_height: u16,
     min_len: u16,
 }
@@ -17,8 +17,8 @@ impl List {
         }
     }
 
-    pub fn add_element(mut self, element: String) -> Self {
-        self.elements.push(element);
+    pub fn add_element(mut self, element: Text) -> Self {
+        self.elements.push(element.x(0).y(0));
         self
     }
 
@@ -74,11 +74,23 @@ impl Widget for List {
             return;
         }
 
-        for _element in &self.elements {}
+        let mut row: u16 = 0;
+        for element in &self.elements {
+            if row < height {
+                let item_h = element.default_height().min(height.saturating_sub(row));
+                let item_w = element.layout().width.unwrap_or(width).min(width);
+
+                let mut row_canvas = canvas.subcanvas(0, row, item_w, item_h);
+                element.render(&mut row_canvas);
+                row = row.saturating_add(item_h);
+            } else {
+                return;
+            }
+        }
     }
 
     fn layout(&self) -> &LayoutOptions {
-        &self.layoutf
+        &self.layout
     }
 
     fn default_height(&self) -> u16 {

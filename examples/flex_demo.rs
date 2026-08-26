@@ -1,4 +1,6 @@
-use auxior::{App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, StatusBar, Text, Widget};
+use auxior::{
+    App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, List, StatusBar, Text, Widget,
+};
 use crossterm::style::Color;
 
 fn main() -> std::io::Result<()> {
@@ -41,35 +43,54 @@ fn main() -> std::io::Result<()> {
             )
             .padding(1)
             .child(
-                Flex::column()
-                    .gap(1)
-                    .child(Text::new("Header").fg(Color::Cyan))
+                Flex::row()
                     .child(
-                        Flex::row()
-                            .gap(5)
+                        Flex::column()
+                            .gap(1)
                             .flex(1)
+                            .child(Text::new("Header").fg(Color::Cyan))
                             .child(
-                                Div::new()
-                                    .border(true)
-                                    .title(Text::new("Left"))
+                                Flex::row()
+                                    .gap(5)
                                     .flex(1)
-                                    .child(Text::new("Panel A")),
+                                    .child(
+                                        Div::new()
+                                            .border(true)
+                                            .title(Text::new("Left"))
+                                            .flex(1)
+                                            .child(Text::new("Panel A")),
+                                    )
+                                    .child(
+                                        Div::new()
+                                            .border(true)
+                                            .title(Text::new("Right"))
+                                            .flex(1)
+                                            .child(Text::new("Panel B")),
+                                    ),
                             )
+                            .child(Text::new("Footer — q to quit"))
+                            .child(Bar::new().width(6).fill(0.98).bg(Color::Black))
                             .child(
-                                Div::new()
-                                    .border(true)
-                                    .title(Text::new("Right"))
-                                    .flex(1)
-                                    .child(Text::new("Panel B")),
+                                StatusBar::new()
+                                    .fill(0.5)
+                                    .bg(Color::Black)
+                                    .label(Text::new("CPU")),
                             ),
                     )
-                    .child(Text::new("Footer — q to quit"))
-                    .child(Bar::new().width(6).fill(0.98).bg(Color::Black))
                     .child(
-                        StatusBar::new()
-                            .fill(0.5)
-                            .bg(Color::Black)
-                            .label(Text::new("CPU")),
+                        List::new()
+                            .width(12)
+                            .height(6)
+                            .min_height(5)
+                            .add_element(Text::new("list item 1"))
+                            .add_element(Text::new("list item 2"))
+                            .add_element(Text::new("lsit item 3").fg(Color::DarkRed))
+                            .add_element(Text::new("list item 4"))
+                            .add_element(Text::new("list item 5"))
+                            .add_element(Text::new("list item 6"))
+                            .add_element(Text::new("list item 7"))
+                            .add_element(Text::new("list item 8"))
+                            .add_element(Text::new("list item 9")),
                     ),
             )
             .render_with_context(&mut canvas, ctx);
