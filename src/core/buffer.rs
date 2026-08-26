@@ -220,4 +220,100 @@ mod tests {
         new_vec.push((1_u16, 2_u16));
         assert_eq!(res, new_vec);
     }
+
+    #[test]
+    fn diff_region_clips_to_area() {
+        let old_buf = Buffer::new(4, 4);
+        let mut new_buf = Buffer::new(4, 4);
+        new_buf.set(0, 0, Cell::new('a'));
+        new_buf.set(3, 3, Cell::new('z'));
+
+        let res = new_buf.diff_region(&old_buf, Area::new(0, 0, 2, 2));
+
+        assert_eq!(res, vec![(0, 0)]);
+    }
+
+    #[test]
+    fn all_coords_returns_every_cell() {
+        let buf = Buffer::new(3, 2);
+        let coords = buf.all_coords();
+
+        assert_eq!(coords.len(), 6);
+        assert_eq!(
+            coords,
+            vec![(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]
+        );
+    }
+
+    #[test]
+    fn all_coords_empty_for_zero_size_buffer() {
+        let buf = Buffer::new(0, 0);
+        assert!(buf.all_coords().is_empty());
+    }
+
+    #[test]
+    fn copy_buffer_from_same_size() {
+        let mut src = Buffer::new(3, 2);
+        src.set(1, 0, Cell::with_fg('x', Color::Red));
+        src.set(2, 1, Cell::new('y'));
+
+        let mut dst = Buffer::new(3, 2);
+        dst.set(0, 0, Cell::new('!'));
+
+        dst.copy_buffer_from(&src);
+
+        assert_eq!(dst.get(0, 0).unwrap().ch, ' ');
+        assert_eq!(dst.get(1, 0).unwrap().ch, 'x');
+        assert_eq!(dst.get(1, 0).unwrap().fg, Color::Red);
+        assert_eq!(dst.get(2, 1).unwrap().ch, 'y');
+    }
+
+    #[test]
+    fn copy_buffer_from_replaces_when_dimensions_differ() {
+        let mut src = Buffer::new(2, 3);
+        src.set(1, 2, Cell::new('z'));
+
+        let mut dst = Buffer::new(4, 4);
+        dst.copy_buffer_from(&src);
+
+        assert_eq!(dst.width, 2);
+        assert_eq!(dst.height, 3);
+        assert_eq!(dst.get(1, 2).unwrap().ch, 'z');
+    }
+
+    #[test]
+    fn copy_region_copies_subrectangle() {
+        let mut src = Buffer::new(4, 4);
+        src.set(1, 1, Cell::new('A'));
+        src.set(2, 1, Cell::new('B'));
+        src.set(1, 2, Cell::new('C'));
+        src.set(2, 2, Cell::new('D'));
+
+        let mut dst = Buffer::new(4, 4);
+        dst.copy_region(Area::new(0, 0, 2, 2), &src, Area::new(1, 1, 2, 2));
+
+        assert_eq!(dst.get(0, 0).unwrap().ch, 'A');
+        assert_eq!(dst.get(1, 0).unwrap().ch, 'B');
+        assert_eq!(dst.get(0, 1).unwrap().ch, 'C');
+        assert_eq!(dst.get(1, 1).unwrap().ch, 'D');
+        assert_eq!(dst.get(3, 3).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn copy_region_clips_to_buffer_bounds() {
+        let mut src = Buffer::new(3, 3);
+        src.set(2, 2, Cell::new('X'));
+
+        let mut dst = Buffer::new(3, 3);
+        dst.copy_region(Area::new(2, 2, 2, 2), &src, Area::new(2, 2, 2, 2));
+
+        assert_eq!(dst.get(2, 2).unwrap().ch, 'X');
+        assert_eq!(dst.get(0, 0).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn as_slice_len_matches_cell_count() {
+        let buf = Buffer::new(4, 3);
+        assert_eq!(buf.as_slice().len(), 12);
+    }
 }
