@@ -2,7 +2,7 @@ mod composites;
 mod core;
 mod widgets;
 
-pub use composites::{List, SparklineGraph, StatusBar, StatusType};
+pub use composites::{List, SparklineGraph, StatusBar, StatusType, Table};
 pub use core::{
     App, AppConfig, AppEvent, Area, Buffer, Canvas, Cell, ControlFlow, FrameStats, RenderContext,
     Terminal,

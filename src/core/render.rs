@@ -65,3 +65,122 @@ impl<'a> RenderContext<'a> {
             .sum()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Cell;
+
+    #[test]
+    fn mark_dirty_ignores_zero_width_and_height() {
+        let previous = Buffer::new(4, 4);
+        let mut ctx = RenderContext::new(&previous);
+
+        ctx.mark_dirty(Area::new(0, 0, 0, 2));
+        ctx.mark_dirty(Area::new(0, 0, 2, 0));
+
+        assert!(ctx.dirty_regions.is_empty());
+    }
+
+    #[test]
+    fn mark_dirty_records_positive_area() {
+        let previous = Buffer::new(4, 4);
+        let mut ctx = RenderContext::new(&previous);
+        let area = Area::new(1, 2, 3, 1);
+
+        ctx.mark_dirty(area);
+
+        assert_eq!(ctx.dirty_regions, vec![area]);
+    }
+
+    #[test]
+    fn diff_coords_empty_when_no_dirty_regions() {
+        let previous = Buffer::new(3, 3);
+        let mut current = Buffer::new(3, 3);
+        current.set(1, 1, Cell::new('x'));
+
+        let ctx = RenderContext::new(&previous);
+
+        assert!(ctx.diff_coords(&current).is_empty());
+    }
+
+    #[test]
+    fn diff_coords_force_full_diffs_entire_buffer() {
+        let previous = Buffer::new(2, 2);
+        let mut current = Buffer::new(2, 2);
+        current.set(1, 1, Cell::new('a'));
+
+        let mut ctx = RenderContext::new(&previous);
+        ctx.force_full = true;
+
+        assert_eq!(ctx.diff_coords(&current), vec![(1, 1)]);
+    }
+
+    #[test]
+    fn diff_coords_scoped_to_dirty_regions_only() {
+        let previous = Buffer::new(4, 4);
+        let mut current = Buffer::new(4, 4);
+        current.set(0, 0, Cell::new('a'));
+        current.set(3, 3, Cell::new('z'));
+
+        let mut ctx = RenderContext::new(&previous);
+        ctx.mark_dirty(Area::new(0, 0, 1, 1));
+
+        assert_eq!(ctx.diff_coords(&current), vec![(0, 0)]);
+    }
+
+    #[test]
+    fn diff_coords_dedupes_overlapping_dirty_regions() {
+        let previous = Buffer::new(3, 3);
+        let mut current = Buffer::new(3, 3);
+        current.set(1, 1, Cell::new('x'));
+
+        let mut ctx = RenderContext::new(&previous);
+        ctx.mark_dirty(Area::new(0, 0, 2, 2));
+        ctx.mark_dirty(Area::new(1, 1, 2, 2));
+
+        let coords = ctx.diff_coords(&current);
+        assert_eq!(coords, vec![(1, 1)]);
+    }
+
+    #[test]
+    fn diff_coords_returns_empty_when_dirty_region_unchanged() {
+        let mut previous = Buffer::new(2, 2);
+        previous.set(0, 0, Cell::new('h'));
+
+        let mut current = Buffer::new(2, 2);
+        current.set(0, 0, Cell::new('h'));
+
+        let mut ctx = RenderContext::new(&previous);
+        ctx.mark_dirty(Area::new(0, 0, 1, 1));
+
+        assert!(ctx.diff_coords(&current).is_empty());
+    }
+
+    #[test]
+    fn checked_cells_force_full_equals_buffer_size() {
+        let previous = Buffer::new(5, 4);
+        let mut ctx = RenderContext::new(&previous);
+        ctx.force_full = true;
+
+        assert_eq!(ctx.checked_cells(&previous), 20);
+    }
+
+    #[test]
+    fn checked_cells_sums_dirty_region_areas() {
+        let previous = Buffer::new(10, 10);
+        let mut ctx = RenderContext::new(&previous);
+        ctx.mark_dirty(Area::new(0, 0, 2, 3));
+        ctx.mark_dirty(Area::new(4, 0, 3, 2));
+
+        assert_eq!(ctx.checked_cells(&previous), 6 + 6);
+    }
+
+    #[test]
+    fn checked_cells_zero_when_no_dirty_regions_and_not_force_full() {
+        let previous = Buffer::new(8, 8);
+        let ctx = RenderContext::new(&previous);
+
+        assert_eq!(ctx.checked_cells(&previous), 0);
+    }
+}
