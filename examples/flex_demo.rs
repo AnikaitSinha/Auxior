@@ -1,5 +1,6 @@
 use auxior::{
-    App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, List, StatusBar, Text, Widget,
+    App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, List, StatusBar, Table, Text,
+    Widget,
 };
 use crossterm::style::Color;
 
@@ -78,19 +79,14 @@ fn main() -> std::io::Result<()> {
                             ),
                     )
                     .child(
-                        List::new()
-                            .width(12)
-                            .height(6)
-                            .min_height(5)
-                            .add_element(Text::new("list item 1"))
-                            .add_element(Text::new("list item 2"))
-                            .add_element(Text::new("lsit item 3").fg(Color::DarkRed))
-                            .add_element(Text::new("list item 4"))
-                            .add_element(Text::new("list item 5"))
-                            .add_element(Text::new("list item 6"))
-                            .add_element(Text::new("list item 7"))
-                            .add_element(Text::new("list item 8"))
-                            .add_element(Text::new("list item 9")),
+                        Table::new()
+                            .num_of_cols(2)
+                            .min_len_per_col(vec![8, 6])
+                            .header(true)
+                            .header_labels(vec![Text::new("Name"), Text::new("Score")])
+                            .add_row(vec![Text::new("Alice"), Text::new("98")])
+                            .add_row(vec![Text::new("Bob"), Text::new("87")])
+                            .width(20),
                     ),
             )
             .render_with_context(&mut canvas, ctx);
