@@ -92,10 +92,7 @@ impl Table {
         let from_header = self.header_labels.len();
         let from_min_lens = self.min_len_per_col.len();
         let explicit = self.num_of_cols as usize;
-        explicit
-            .max(from_rows)
-            .max(from_header)
-            .max(from_min_lens)
+        explicit.max(from_rows).max(from_header).max(from_min_lens)
     }
 
     fn column_widths(&self, canvas_width: u16) -> Vec<u16> {
@@ -104,27 +101,33 @@ impl Table {
             return Vec::new();
         }
 
-        let mut widths: Vec<u16> = (0..cols)
-            .map(|i| self.min_len_per_col.get(i).copied().unwrap_or(0))
+        let mins: Vec<u16> = (0..cols)
+            .map(|i| {
+                let min = self.min_len_per_col.get(i).copied().unwrap_or(0);
+                if min == 0 { 1 } else { min }
+            })
             .collect();
 
-        let fixed: u16 = widths.iter().sum();
-        let unspecified = widths.iter().filter(|&&w| w == 0).count();
+        let min_sum: u32 = mins.iter().map(|&m| m as u32).sum();
+        if min_sum == 0 {
+            return vec![1; cols];
+        }
 
-        if unspecified > 0 {
-            let remaining = canvas_width.saturating_sub(fixed);
-            let each = (remaining / unspecified as u16).max(1);
-            for w in &mut widths {
-                if *w == 0 {
-                    *w = each;
-                }
-            }
-        } else {
-            for w in &mut widths {
-                if *w == 0 {
-                    *w = 1;
-                }
-            }
+        if canvas_width as u32 <= min_sum {
+            return mins;
+        }
+
+        let mut widths: Vec<u16> = mins
+            .iter()
+            .map(|&m| ((canvas_width as u32 * m as u32) / min_sum) as u16)
+            .collect();
+
+        let mut remainder = canvas_width.saturating_sub(widths.iter().sum());
+        let mut i = 0_usize;
+        while remainder > 0 {
+            widths[i % cols] = widths[i % cols].saturating_add(1);
+            remainder -= 1;
+            i += 1;
         }
 
         widths
@@ -223,11 +226,7 @@ impl Widget for Table {
         } else {
             0
         };
-        let body: u16 = self
-            .rows
-            .iter()
-            .map(|row| Self::row_height(row))
-            .sum();
+        let body: u16 = self.rows.iter().map(|row| Self::row_height(row)).sum();
         header_rows.saturating_add(body).max(1)
     }
 
@@ -264,10 +263,38 @@ mod tests {
 
         let buf = render_table(&table, 10, 4);
         assert_eq!(buf.get(0, 0).unwrap().ch, 'N');
-        assert_eq!(buf.get(4, 0).unwrap().ch, 'A');
+        assert_eq!(buf.get(5, 0).unwrap().ch, 'A');
         assert_eq!(buf.get(0, 1).unwrap().ch, 'A');
-        assert_eq!(buf.get(4, 1).unwrap().ch, '3');
+        assert_eq!(buf.get(5, 1).unwrap().ch, '3');
         assert_eq!(buf.get(0, 2).unwrap().ch, 'B');
+    }
+
+    #[test]
+    fn extra_width_scales_columns_proportionally() {
+        let table = Table::new()
+            .num_of_cols(2)
+            .min_len_per_col(vec![2, 6])
+            .header(true)
+            .header_labels(vec![Text::new("A"), Text::new("BBBBBB")])
+            .add_row(vec![Text::new("x"), Text::new("y")]);
+
+        // min sum = 8, canvas = 16 → ratio 1:3 → widths 4 and 12
+        let buf = render_table(&table, 16, 2);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'A');
+        assert_eq!(buf.get(4, 0).unwrap().ch, 'B');
+        assert_eq!(buf.get(0, 1).unwrap().ch, 'x');
+        assert_eq!(buf.get(4, 1).unwrap().ch, 'y');
+    }
+
+    #[test]
+    fn at_min_width_uses_minimum_column_widths() {
+        let table = Table::new()
+            .min_len_per_col(vec![4, 4])
+            .add_row(vec![Text::new("abcd"), Text::new("wxyz")]);
+
+        let buf = render_table(&table, 8, 2);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'a');
+        assert_eq!(buf.get(4, 0).unwrap().ch, 'w');
     }
 
     #[test]

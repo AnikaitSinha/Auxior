@@ -1,6 +1,5 @@
 use auxior::{
-    App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, List, StatusBar, Table, Text,
-    Widget,
+    App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, StatusBar, Table, Text, Widget,
 };
 use crossterm::style::Color;
 
