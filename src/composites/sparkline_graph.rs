@@ -297,3 +297,79 @@ impl Widget for SparklineGraph {
         self.min_len_label + self.min_len_bar + self.min_len_status + 2
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Area, Buffer};
+    use crossterm::style::Color;
+
+    fn render_sparkline(graph: &SparklineGraph, w: u16) -> Buffer {
+        let mut buf = Buffer::new(w, 1);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, w, 1));
+        graph.render(&mut canvas);
+        buf
+    }
+
+    #[test]
+    fn too_narrow_renders_error() {
+        let graph = SparklineGraph::new();
+        let buf = render_sparkline(&graph, 10);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'e');
+        assert_eq!(buf.get(0, 0).unwrap().fg, Color::Red);
+        assert_eq!(buf.get(6, 0).unwrap().ch, '1');
+    }
+
+    #[test]
+    fn renders_label_and_percentage_status() {
+        let graph = SparklineGraph::new()
+            .label(Text::new("CPU"))
+            .fill(0.5)
+            .values([0.5]);
+
+        let buf = render_sparkline(&graph, 24);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'C');
+        assert_eq!(buf.get(23, 0).unwrap().ch, '%');
+    }
+
+    #[test]
+    fn actual_status_shows_out_of_suffix() {
+        let graph = SparklineGraph::new()
+            .status_type(StatusType::Actual)
+            .fill(0.5)
+            .out_of(100.0)
+            .values([50.0]);
+
+        let buf = render_sparkline(&graph, 24);
+        // status region (5 cols) right-aligns "50/100" → "50/10" at x=19..23
+        assert_eq!(buf.get(19, 0).unwrap().ch, '5');
+        assert_eq!(buf.get(20, 0).unwrap().ch, '0');
+        assert_eq!(buf.get(21, 0).unwrap().ch, '/');
+    }
+
+    #[test]
+    fn values_render_sparkline_in_bar_region() {
+        let graph = SparklineGraph::new()
+            .values([1.0, 1.0])
+            .window(2);
+
+        let buf = render_sparkline(&graph, 24);
+        // bar starts after label (4) + gap (1) → x = 5
+        assert_ne!(buf.get(5, 0).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn default_width_matches_min_regions() {
+        let graph = SparklineGraph::new();
+        assert_eq!(graph.default_width(), 19);
+    }
+
+    #[test]
+    fn zero_size_canvas_does_not_panic() {
+        let graph = SparklineGraph::new();
+        let mut buf = Buffer::new(0, 0);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 0, 0));
+        graph.render(&mut canvas);
+    }
+}

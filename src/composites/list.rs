@@ -101,3 +101,77 @@ impl Widget for List {
         self.min_len
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Area, Buffer};
+
+    fn render_list(list: &List, w: u16, h: u16) -> Buffer {
+        let mut buf = Buffer::new(w, h);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, w, h));
+        list.render(&mut canvas);
+        buf
+    }
+
+    #[test]
+    fn stacks_elements_vertically() {
+        let list = List::new()
+            .min_len(4)
+            .min_height(2)
+            .add_element(Text::new("One"))
+            .add_element(Text::new("Two"));
+
+        let buf = render_list(&list, 10, 4);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'O');
+        assert_eq!(buf.get(0, 1).unwrap().ch, 'T');
+    }
+
+    #[test]
+    fn too_narrow_canvas_does_not_render() {
+        let list = List::new()
+            .min_len(8)
+            .add_element(Text::new("Hello"));
+
+        let buf = render_list(&list, 6, 4);
+        assert_eq!(buf.get(0, 0).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn too_short_canvas_does_not_render() {
+        let list = List::new()
+            .min_height(4)
+            .add_element(Text::new("Hello"));
+
+        let buf = render_list(&list, 10, 2);
+        assert_eq!(buf.get(0, 0).unwrap().ch, ' ');
+    }
+
+    #[test]
+    fn clips_when_list_exceeds_canvas_height() {
+        let list = List::new()
+            .min_len(4)
+            .min_height(2)
+            .add_element(Text::new("A"))
+            .add_element(Text::new("B"))
+            .add_element(Text::new("C"));
+
+        let buf = render_list(&list, 10, 2);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'A');
+        assert_eq!(buf.get(0, 1).unwrap().ch, 'B');
+    }
+
+    #[test]
+    fn default_width_returns_min_len() {
+        let list = List::new().min_len(12);
+        assert_eq!(list.default_width(), 12);
+    }
+
+    #[test]
+    fn zero_size_canvas_does_not_panic() {
+        let list = List::new().add_element(Text::new("x"));
+        let mut buf = Buffer::new(0, 0);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 0, 0));
+        list.render(&mut canvas);
+    }
+}

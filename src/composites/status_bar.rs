@@ -223,3 +223,78 @@ impl Widget for StatusBar {
         self.min_len_label + self.min_len_bar + self.min_len_status + 2
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Area, Buffer};
+    use crossterm::style::Color;
+
+    fn render_status_bar(bar: &StatusBar, w: u16) -> Buffer {
+        let mut buf = Buffer::new(w, 1);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, w, 1));
+        bar.render(&mut canvas);
+        buf
+    }
+
+    #[test]
+    fn too_narrow_renders_error() {
+        let bar = StatusBar::new();
+        let buf = render_status_bar(&bar, 10);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'e');
+        assert_eq!(buf.get(0, 0).unwrap().fg, Color::Red);
+        assert_eq!(buf.get(6, 0).unwrap().ch, '1');
+    }
+
+    #[test]
+    fn renders_label_bar_and_percentage() {
+        let bar = StatusBar::new()
+            .label(Text::new("CPU"))
+            .fill(1.0);
+
+        let buf = render_status_bar(&bar, 24);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'C');
+        assert_eq!(buf.get(5, 0).unwrap().ch, '■');
+        assert_eq!(buf.get(23, 0).unwrap().ch, '%');
+    }
+
+    #[test]
+    fn actual_status_shows_out_of_suffix() {
+        let bar = StatusBar::new()
+            .status_type(StatusType::Actual)
+            .fill(0.5)
+            .out_of(100.0);
+
+        let buf = render_status_bar(&bar, 24);
+        // status region (5 cols) right-aligns "50/100" → "50/10" at x=19..23
+        assert_eq!(buf.get(19, 0).unwrap().ch, '5');
+        assert_eq!(buf.get(20, 0).unwrap().ch, '0');
+        assert_eq!(buf.get(21, 0).unwrap().ch, '/');
+    }
+
+    #[test]
+    fn zero_fill_uses_start_color_for_status_value() {
+        let start = Color::Rgb { r: 255, g: 0, b: 0 };
+        let bar = StatusBar::new().fill(0.0).start_color(start);
+        let buf = render_status_bar(&bar, 24);
+
+        // percentage "0%" is right-aligned in the status region (x=19..23)
+        assert_eq!(buf.get(22, 0).unwrap().ch, '0');
+        assert_eq!(buf.get(22, 0).unwrap().fg, start);
+    }
+
+    #[test]
+    fn default_width_matches_min_regions() {
+        let bar = StatusBar::new();
+        assert_eq!(bar.default_width(), 19);
+    }
+
+    #[test]
+    fn zero_size_canvas_does_not_panic() {
+        let bar = StatusBar::new();
+        let mut buf = Buffer::new(0, 0);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 0, 0));
+        bar.render(&mut canvas);
+    }
+}

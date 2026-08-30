@@ -3,6 +3,7 @@ mod buffer;
 mod canvas;
 mod cell;
 mod keymap;
+mod mouse;
 mod render;
 mod terminal;
 
