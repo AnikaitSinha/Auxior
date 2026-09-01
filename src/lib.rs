@@ -8,6 +8,6 @@ pub use core::{
     Terminal,
 };
 pub use widgets::{
-    Bar, BorderAlign, BorderSide, Button, Div, DivOptions, Flex, FlexDirection, LayoutOptions,
-    ScrollGraph, Text, Widget,
+    Bar, BorderAlign, BorderSide, Button, Div, DivOptions, Flex, FlexDirection, Grid,
+    LayoutOptions, ScrollGraph, Text, Widget,
 };
