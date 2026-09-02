@@ -320,3 +320,134 @@ fn layout_grid(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Buffer, Div, Text};
+
+    fn render_grid(grid: &Grid, width: u16, height: u16) -> Buffer {
+        let mut buf = Buffer::new(width, height);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, width, height));
+        grid.render(&mut canvas);
+        buf
+    }
+
+    #[test]
+    fn places_children_in_row_major_order() {
+        let grid = Grid::new()
+            .cols(2)
+            .width(10)
+            .height(6)
+            .child(Text::new("A").width(2).height(2))
+            .child(Text::new("B").width(2).height(2))
+            .child(Text::new("C").width(2).height(2))
+            .child(Text::new("D").width(2).height(2));
+
+        let buf = render_grid(&grid, 10, 6);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'A');
+        assert_eq!(buf.get(2, 0).unwrap().ch, 'B');
+        assert_eq!(buf.get(0, 2).unwrap().ch, 'C');
+        assert_eq!(buf.get(2, 2).unwrap().ch, 'D');
+    }
+
+    #[test]
+    fn gap_adds_space_between_rows_and_columns() {
+        let grid = Grid::new()
+            .cols(2)
+            .gap(1)
+            .width(10)
+            .height(6)
+            .child(Text::new("A").width(2).height(2))
+            .child(Text::new("B").width(2).height(2))
+            .child(Text::new("C").width(2).height(2))
+            .child(Text::new("D").width(2).height(2));
+
+        let buf = render_grid(&grid, 10, 6);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'A');
+        assert_eq!(buf.get(3, 0).unwrap().ch, 'B');
+        assert_eq!(buf.get(0, 3).unwrap().ch, 'C');
+        assert_eq!(buf.get(3, 3).unwrap().ch, 'D');
+    }
+
+    #[test]
+    fn column_flex_grow_fills_remaining_width() {
+        let grid = Grid::new()
+            .cols(2)
+            .width(12)
+            .height(5)
+            .child(Text::new("A").width(2))
+            .child(Div::new().border(true).flex(1));
+
+        let buf = render_grid(&grid, 12, 5);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'A');
+        assert_eq!(buf.get(2, 0).unwrap().ch, '╭');
+        assert_eq!(buf.get(11, 0).unwrap().ch, '╮');
+    }
+
+    #[test]
+    fn row_flex_grow_fills_remaining_height() {
+        let grid = Grid::new()
+            .cols(1)
+            .width(10)
+            .height(10)
+            .child(Text::new("Fixed").height(2))
+            .child(Div::new().border(true).flex(1));
+
+        let buf = render_grid(&grid, 10, 10);
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'F');
+        assert_eq!(buf.get(0, 2).unwrap().ch, '╭');
+        assert_eq!(buf.get(0, 9).unwrap().ch, '╰');
+    }
+
+    #[test]
+    fn uneven_last_row_places_remaining_child() {
+        let grid = Grid::new()
+            .cols(2)
+            .width(10)
+            .height(10)
+            .child(Text::new("0").height(1))
+            .child(Text::new("1").height(1))
+            .child(Text::new("2").height(1))
+            .child(Text::new("3").height(1))
+            .child(Text::new("4").height(1));
+
+        let buf = render_grid(&grid, 10, 10);
+        assert_eq!(buf.get(0, 0).unwrap().ch, '0');
+        assert_eq!(buf.get(1, 0).unwrap().ch, '1');
+        assert_eq!(buf.get(0, 1).unwrap().ch, '2');
+        assert_eq!(buf.get(1, 1).unwrap().ch, '3');
+        assert_eq!(buf.get(0, 2).unwrap().ch, '4');
+    }
+
+    #[test]
+    fn default_width_sums_column_intrinsics_and_gaps() {
+        let grid = Grid::new()
+            .cols(2)
+            .col_gap(1)
+            .child(Text::new("AB").width(2))
+            .child(Text::new("CDE").width(3));
+
+        assert_eq!(grid.default_width(), 6);
+    }
+
+    #[test]
+    fn default_height_sums_row_intrinsics_and_gaps() {
+        let grid = Grid::new()
+            .cols(2)
+            .row_gap(1)
+            .child(Text::new("A").height(2))
+            .child(Text::new("B").height(2))
+            .child(Text::new("C").height(3));
+
+        assert_eq!(grid.default_height(), 6);
+    }
+
+    #[test]
+    fn zero_size_canvas_does_not_panic() {
+        let grid = Grid::new().child(Text::new("A"));
+        let mut buf = Buffer::new(0, 0);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 0, 0));
+        grid.render(&mut canvas);
+    }
+}
