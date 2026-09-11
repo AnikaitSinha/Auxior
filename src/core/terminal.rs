@@ -1,8 +1,8 @@
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
-    execute,
+    execute, queue,
     style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{
         EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
@@ -10,6 +10,96 @@ use crossterm::{
 };
 
 use crate::{Buffer, Cell};
+
+// A whole flush is written into one buffer and handed to the terminal in a
+// single `write`, so cost here is escape-sequence bytes rather than syscalls.
+const FLUSH_BUFFER_CAPACITY: usize = 64 * 1024;
+
+// The terminal's last-known style and cursor position over the course of one
+// flush, so repeated styles and redundant cursor moves can be skipped.
+#[derive(Default)]
+struct FlushState {
+    fg: Option<Color>,
+    bg: Option<Color>,
+    bold: Option<bool>,
+    italic: Option<bool>,
+    underline: Option<bool>,
+    // Where the cursor sits after the previous `Print`, when that is known.
+    cursor: Option<(u16, u16)>,
+}
+
+impl FlushState {
+    fn write_cell<W: Write>(
+        &mut self,
+        writer: &mut W,
+        x: u16,
+        y: u16,
+        cell: &Cell,
+        wrap_width: u16,
+    ) -> io::Result<()> {
+        if self.cursor != Some((x, y)) {
+            queue!(writer, MoveTo(x, y))?;
+        }
+
+        if self.fg != Some(cell.fg) {
+            queue!(writer, SetForegroundColor(cell.fg))?;
+            self.fg = Some(cell.fg);
+        }
+
+        if self.bg != Some(cell.bg) {
+            queue!(writer, SetBackgroundColor(cell.bg))?;
+            self.bg = Some(cell.bg);
+        }
+
+        if self.bold != Some(cell.b) {
+            queue!(
+                writer,
+                SetAttribute(if cell.b {
+                    Attribute::Bold
+                } else {
+                    Attribute::NormalIntensity
+                })
+            )?;
+            self.bold = Some(cell.b);
+        }
+
+        if self.italic != Some(cell.i) {
+            queue!(
+                writer,
+                SetAttribute(if cell.i {
+                    Attribute::Italic
+                } else {
+                    Attribute::NoItalic
+                })
+            )?;
+            self.italic = Some(cell.i);
+        }
+
+        if self.underline != Some(cell.u) {
+            queue!(
+                writer,
+                SetAttribute(if cell.u {
+                    Attribute::Underlined
+                } else {
+                    Attribute::NoUnderline
+                })
+            )?;
+            self.underline = Some(cell.u);
+        }
+
+        queue!(writer, Print(cell.ch))?;
+
+        // Printing in the final column may or may not wrap depending on the
+        // terminal's autowrap mode, so the cursor is only tracked within a row.
+        self.cursor = if x + 1 < wrap_width {
+            Some((x + 1, y))
+        } else {
+            None
+        };
+
+        Ok(())
+    }
+}
 
 pub struct Terminal {
     width: u16,
@@ -61,175 +151,58 @@ impl Terminal {
     }
 
     fn flush(&self, buffer: &Buffer) -> io::Result<()> {
-        Self::flush_to(buffer, &mut io::stdout())
+        let stdout = io::stdout().lock();
+        let mut writer = BufWriter::with_capacity(FLUSH_BUFFER_CAPACITY, stdout);
+        Self::flush_to(buffer, self.width, &mut writer)
     }
 
     // Deprecated
-    fn flush_to<W: Write>(buffer: &Buffer, writer: &mut W) -> io::Result<()> {
-        let mut last_fg = None;
-        let mut last_bg = None;
-        let mut last_b = None;
-        let mut last_i = None;
-        let mut last_u = None;
+    fn flush_to<W: Write>(buffer: &Buffer, wrap_width: u16, writer: &mut W) -> io::Result<()> {
+        let mut state = FlushState::default();
 
         for y in 0..buffer.height {
             for x in 0..buffer.width {
                 let Some(cell) = buffer.get(x, y) else {
                     continue;
                 };
-
-                execute!(writer, MoveTo(x, y))?;
-
-                if last_fg != Some(cell.fg) {
-                    execute!(writer, SetForegroundColor(cell.fg))?;
-                    last_fg = Some(cell.fg);
-                }
-
-                if last_bg != Some(cell.bg) {
-                    execute!(writer, SetBackgroundColor(cell.bg))?;
-                    last_bg = Some(cell.bg);
-                }
-
-                if last_b != Some(cell.b) {
-                    execute!(
-                        writer,
-                        SetAttribute(if cell.b {
-                            Attribute::Bold
-                        } else {
-                            Attribute::NormalIntensity
-                        })
-                    )?;
-                    last_b = Some(cell.b);
-                }
-
-                if last_i != Some(cell.i) {
-                    execute!(
-                        writer,
-                        SetAttribute(if cell.i {
-                            Attribute::Italic
-                        } else {
-                            Attribute::NoItalic
-                        })
-                    )?;
-                    last_i = Some(cell.i);
-                }
-
-                if last_u != Some(cell.u) {
-                    execute!(
-                        writer,
-                        SetAttribute(if cell.u {
-                            Attribute::Underlined
-                        } else {
-                            Attribute::NoUnderline
-                        })
-                    )?;
-                    last_u = Some(cell.u);
-                }
-
-                execute!(writer, Print(cell.ch))?;
+                state.write_cell(writer, x, y, cell, wrap_width)?;
             }
         }
+
         writer.flush()?;
-        Ok(())
-    }
-
-    // new optimized flush technique
-    fn write_cell<W: Write>(
-        writer: &mut W,
-        x: u16,
-        y: u16,
-        cell: &Cell,
-        last_fg: &mut Option<Color>,
-        last_bg: &mut Option<Color>,
-        last_b: &mut Option<bool>,
-        last_i: &mut Option<bool>,
-        last_u: &mut Option<bool>,
-    ) -> io::Result<()> {
-        execute!(writer, MoveTo(x, y))?;
-
-        if *last_fg != Some(cell.fg) {
-            execute!(writer, SetForegroundColor(cell.fg))?;
-            *last_fg = Some(cell.fg);
-        }
-
-        if *last_bg != Some(cell.bg) {
-            execute!(writer, SetBackgroundColor(cell.bg))?;
-            *last_bg = Some(cell.bg);
-        }
-
-        if *last_b != Some(cell.b) {
-            execute!(
-                writer,
-                SetAttribute(if cell.b {
-                    Attribute::Bold
-                } else {
-                    Attribute::NormalIntensity
-                })
-            )?;
-            *last_b = Some(cell.b);
-        }
-
-        if *last_i != Some(cell.i) {
-            execute!(
-                writer,
-                SetAttribute(if cell.i {
-                    Attribute::Italic
-                } else {
-                    Attribute::NoItalic
-                })
-            )?;
-            *last_i = Some(cell.i);
-        }
-
-        if *last_u != Some(cell.u) {
-            execute!(
-                writer,
-                SetAttribute(if cell.u {
-                    Attribute::Underlined
-                } else {
-                    Attribute::NoUnderline
-                })
-            )?;
-            *last_u = Some(cell.u);
-        }
-
-        execute!(writer, Print(cell.ch))?;
         Ok(())
     }
 
     fn flush_cells_to<W: Write>(
         buffer: &Buffer,
         coords: &[(u16, u16)],
+        wrap_width: u16,
         writer: &mut W,
     ) -> io::Result<()> {
         if coords.is_empty() {
             return Ok(());
         }
 
-        let mut last_fg = None;
-        let mut last_bg = None;
-        let mut last_b = None;
-        let mut last_i = None;
-        let mut last_u = None;
+        // Row-major order keeps runs of cells adjacent so the cursor can walk
+        // them without a `MoveTo` per cell. Note the coordinates are `(x, y)`,
+        // so a plain sort would order them by column.
+        let owned: Vec<(u16, u16)>;
+        let ordered: &[(u16, u16)] = if coords.is_sorted_by_key(|&(x, y)| (y, x)) {
+            coords
+        } else {
+            let mut sorted = coords.to_vec();
+            sorted.sort_unstable_by_key(|&(x, y)| (y, x));
+            owned = sorted;
+            &owned
+        };
 
-        let mut sorted = coords.to_vec();
-        sorted.sort_unstable();
+        let mut state = FlushState::default();
 
-        for (x, y) in sorted {
+        for &(x, y) in ordered {
             let Some(cell) = buffer.get(x, y) else {
                 continue;
             };
-            Self::write_cell(
-                writer,
-                x,
-                y,
-                cell,
-                &mut last_fg,
-                &mut last_bg,
-                &mut last_b,
-                &mut last_i,
-                &mut last_u,
-            )?;
+            state.write_cell(writer, x, y, cell, wrap_width)?;
         }
 
         writer.flush()?;
@@ -237,7 +210,9 @@ impl Terminal {
     }
 
     pub(crate) fn flush_cells(&self, buffer: &Buffer, coords: &[(u16, u16)]) -> io::Result<()> {
-        Self::flush_cells_to(buffer, coords, &mut io::stdout())
+        let stdout = io::stdout().lock();
+        let mut writer = BufWriter::with_capacity(FLUSH_BUFFER_CAPACITY, stdout);
+        Self::flush_cells_to(buffer, coords, self.width, &mut writer)
     }
 
     fn restore(&mut self) -> io::Result<()> {
@@ -322,7 +297,7 @@ mod tests {
         });
 
         let mut out = Vec::new();
-        Terminal::flush_to(&buf, &mut out).unwrap();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
         assert!(String::from_utf8_lossy(&out).contains('A'));
     }
 
@@ -334,7 +309,7 @@ mod tests {
         buf.set(2, 1, Cell::new('C'));
 
         let mut out = Vec::new();
-        Terminal::flush_to(&buf, &mut out).unwrap();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains('A'));
@@ -348,7 +323,7 @@ mod tests {
         buf.fill(Cell::empty());
 
         let mut out = Vec::new();
-        Terminal::flush_to(&buf, &mut out).unwrap();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains(' '));
@@ -358,7 +333,7 @@ mod tests {
     fn flush_to_handles_zero_size_buffer() {
         let buf = Buffer::new(0, 0);
         let mut out = Vec::new();
-        Terminal::flush_to(&buf, &mut out).unwrap();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
     }
 
     #[test]
@@ -367,7 +342,7 @@ mod tests {
         buf.set(0, 0, Cell::with_fg('Z', Color::Red));
 
         let mut out = Vec::new();
-        Terminal::flush_to(&buf, &mut out).unwrap();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains('Z'));
@@ -381,7 +356,7 @@ mod tests {
         buf.set(1, 0, Cell::new('B'));
 
         let mut out = Vec::new();
-        Terminal::flush_to(&buf, &mut out).unwrap();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains("\x1b[1m"), "expected bold on for A");
@@ -389,5 +364,132 @@ mod tests {
             output.contains("\x1b[22m") || output.contains("\x1b[0m"),
             "expected bold reset before B"
         );
+    }
+
+    // `MoveTo` renders as CSI <row>;<col>H, so counting terminated sequences
+    // counts cursor repositions.
+    fn move_to_count(output: &str) -> usize {
+        output
+            .split("\x1b[")
+            .skip(1)
+            .filter(|seq| seq.starts_with(|c: char| c.is_ascii_digit()) && seq.contains('H'))
+            .filter(|seq| {
+                let end = seq.find(|c: char| !c.is_ascii_digit() && c != ';');
+                end.map(|i| seq.as_bytes()[i] == b'H').unwrap_or(false)
+            })
+            .count()
+    }
+
+    #[test]
+    fn flush_cells_emits_one_move_for_a_contiguous_run() {
+        let mut buf = Buffer::new(8, 2);
+        buf.set(0, 0, Cell::new('A'));
+        buf.set(1, 0, Cell::new('B'));
+        buf.set(2, 0, Cell::new('C'));
+
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0), (2, 0)], buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert!(
+            output.contains("ABC"),
+            "expected one uninterrupted run: {output:?}"
+        );
+        assert_eq!(
+            move_to_count(&output),
+            1,
+            "adjacent cells should not each re-position the cursor: {output:?}"
+        );
+    }
+
+    #[test]
+    fn flush_cells_moves_for_each_disjoint_run() {
+        let mut buf = Buffer::new(8, 2);
+        buf.set(0, 0, Cell::new('A'));
+        buf.set(4, 0, Cell::new('B'));
+
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(0, 0), (4, 0)], buf.width, &mut out).unwrap();
+
+        assert_eq!(move_to_count(&String::from_utf8_lossy(&out)), 2);
+    }
+
+    #[test]
+    fn flush_cells_repositions_after_the_final_column() {
+        // Autowrap makes the cursor position ambiguous after the last column,
+        // so the next cell must be addressed explicitly.
+        let mut buf = Buffer::new(2, 2);
+        buf.set(1, 0, Cell::new('A'));
+        buf.set(0, 1, Cell::new('B'));
+
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(1, 0), (0, 1)], buf.width, &mut out).unwrap();
+
+        assert_eq!(move_to_count(&String::from_utf8_lossy(&out)), 2);
+    }
+
+    #[test]
+    fn flush_cells_walks_rows_not_columns() {
+        // Coordinates are (x, y), so sorting them naively would order by column
+        // and break every run.
+        let mut buf = Buffer::new(3, 2);
+        for (x, ch) in [(0, 'A'), (1, 'B'), (2, 'C')] {
+            buf.set(x, 0, Cell::new(ch));
+        }
+        for (x, ch) in [(0, 'D'), (1, 'E'), (2, 'F')] {
+            buf.set(x, 1, Cell::new(ch));
+        }
+
+        let coords = [(2, 1), (0, 0), (1, 1), (2, 0), (0, 1), (1, 0)];
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &coords, buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert!(
+            output.contains("ABC"),
+            "row 0 should print as a run: {output:?}"
+        );
+        assert!(
+            output.contains("DEF"),
+            "row 1 should print as a run: {output:?}"
+        );
+        assert_eq!(move_to_count(&output), 2, "one move per row: {output:?}");
+    }
+
+    #[test]
+    fn flush_cells_writes_a_style_only_once_per_run() {
+        let mut buf = Buffer::new(4, 1);
+        for x in 0..3u16 {
+            buf.set(x, 0, Cell::with_fg('x', Color::Red));
+        }
+
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0), (2, 0)], buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert_eq!(
+            output.matches("\x1b[38;5;9m").count() + output.matches("\x1b[31m").count(),
+            1,
+            "identical adjacent styles should not be re-sent: {output:?}"
+        );
+    }
+
+    #[test]
+    fn flush_cells_ignores_out_of_bounds_coords() {
+        let mut buf = Buffer::new(2, 1);
+        buf.set(0, 0, Cell::new('A'));
+
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(0, 0), (99, 99)], buf.width, &mut out).unwrap();
+
+        assert!(String::from_utf8_lossy(&out).contains('A'));
+    }
+
+    #[test]
+    fn flush_cells_writes_nothing_for_empty_coords() {
+        let buf = Buffer::new(4, 4);
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[], buf.width, &mut out).unwrap();
+        assert!(out.is_empty());
     }
 }

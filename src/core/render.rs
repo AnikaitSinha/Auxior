@@ -48,7 +48,9 @@ impl<'a> RenderContext<'a> {
         for area in &self.dirty_regions {
             coords.extend(current.diff_region(self.previous, *area));
         }
-        coords.sort_unstable();
+        // Row-major, matching what the flush path walks. Coordinates are
+        // `(x, y)`, so the derived ordering would sort them by column.
+        coords.sort_unstable_by_key(|&(x, y)| (y, x));
         coords.dedup();
         coords
     }
@@ -205,5 +207,21 @@ mod tests {
         let ctx = RenderContext::new(&previous);
 
         assert_eq!(ctx.checked_cells(&previous), 0);
+    }
+
+    #[test]
+    fn diff_coords_are_row_major() {
+        let previous = Buffer::new(4, 3);
+        let mut current = Buffer::new(4, 3);
+        for (x, y) in [(3, 0), (0, 0), (2, 2), (1, 1)] {
+            current.set(x, y, Cell::new('x'));
+        }
+
+        let mut ctx = RenderContext::new(&previous);
+        ctx.mark_dirty(Area::new(0, 0, 4, 3));
+
+        let coords = ctx.diff_coords(&current);
+        assert_eq!(coords, vec![(0, 0), (3, 0), (1, 1), (2, 2)]);
+        assert!(coords.is_sorted_by_key(|&(x, y)| (y, x)));
     }
 }
