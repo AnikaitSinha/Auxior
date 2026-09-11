@@ -1,8 +1,8 @@
+use auxior::Color;
 use auxior::{
     App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, ScrollGraph, SparklineGraph, Text,
     Widget,
 };
-use crossterm::style::Color;
 
 fn trim(history: &mut Vec<f32>, window: usize) {
     let keep = window.saturating_mul(2).max(window);
@@ -13,7 +13,7 @@ fn trim(history: &mut Vec<f32>, window: usize) {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::with_config(AppConfig::new().target_fps(60))?;
+    let mut app = App::with_config(AppConfig::new().target_fps(60).default_quit_keys())?;
     let mut cpu_history: Vec<f32> = Vec::new();
     let mut load_history: Vec<f32> = Vec::new();
     let mut tick = 0_u64;

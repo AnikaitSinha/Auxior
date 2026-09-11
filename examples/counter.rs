@@ -1,8 +1,8 @@
 use auxior::{App, AppConfig, AppEvent, Area, Canvas, Cell, ControlFlow, Div, Text, Widget};
-use crossterm::event::{KeyCode, KeyEvent};
+use auxior::{KeyCode, KeyEvent};
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::with_config(AppConfig::new().target_fps(60))?;
+    let mut app = App::with_config(AppConfig::new().target_fps(60).default_quit_keys())?;
     let mut count = 0_i32;
 
     app.run(|buf, _previous, events, ctx, _stats| {

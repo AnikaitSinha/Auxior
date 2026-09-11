@@ -1,7 +1,5 @@
-use auxior::{
-    App, Area, Canvas, Cell, ControlFlow, Div, Grid, StatusBar, Text, Widget,
-};
-use crossterm::style::Color;
+use auxior::Color;
+use auxior::{App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Grid, StatusBar, Text, Widget};
 
 const GRID_ROWS: u16 = 3;
 const ROW_GAP: u16 = 1;
@@ -12,7 +10,7 @@ fn grid_cell(row_h: u16, child: impl Widget + 'static) -> Div {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::new()?;
+    let mut app = App::with_config(AppConfig::new().default_quit_keys())?;
 
     app.run(|buf, _previous, _events, ctx, _stats| {
         buf.fill(Cell::empty());
@@ -39,7 +37,9 @@ fn main() -> std::io::Result<()> {
                     .bold(true),
             )
             .padding(1)
-            .child(Text::new("3-column grid — col_gap(2), row_gap(1), flex columns"))
+            .child(Text::new(
+                "3-column grid — col_gap(2), row_gap(1), flex columns",
+            ))
             .child(
                 Grid::new()
                     .cols(3)
@@ -71,16 +71,13 @@ fn main() -> std::io::Result<()> {
                             .bg(Color::Black),
                     ))
                     .child(
-                        grid_cell(row_h, Text::new("Row-major cell 0"))
-                            .title(Text::new("Panel A")),
+                        grid_cell(row_h, Text::new("Row-major cell 0")).title(Text::new("Panel A")),
                     )
                     .child(
-                        grid_cell(row_h, Text::new("Row-major cell 1"))
-                            .title(Text::new("Panel B")),
+                        grid_cell(row_h, Text::new("Row-major cell 1")).title(Text::new("Panel B")),
                     )
                     .child(
-                        grid_cell(row_h, Text::new("Row-major cell 2"))
-                            .title(Text::new("Panel C")),
+                        grid_cell(row_h, Text::new("Row-major cell 2")).title(Text::new("Panel C")),
                     ),
             )
             .child(Text::new("q to quit"))

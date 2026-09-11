@@ -1,10 +1,11 @@
+use auxior::Color;
 use auxior::{
-    App, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, StatusBar, Table, Text, Widget,
+    App, AppConfig, Area, Bar, Button, Canvas, Cell, ControlFlow, Div, Flex, StatusBar, Table,
+    Text, Widget,
 };
-use crossterm::style::Color;
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::new()?;
+    let mut app = App::with_config(AppConfig::new().default_quit_keys())?;
 
     app.run(|buf, _previous, _events, ctx, _stats| {
         buf.fill(Cell::empty());
@@ -16,7 +17,7 @@ fn main() -> std::io::Result<()> {
             .border(true)
             .title(
                 Text::new("Flex Demo")
-                    .fg(crossterm::style::Color::Rgb {
+                    .fg(Color::Rgb {
                         r: 123,
                         g: 11,
                         b: 166,

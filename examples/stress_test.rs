@@ -3,12 +3,12 @@ use std::fs;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use auxior::Color;
 use auxior::{
     App, AppConfig, AppEvent, Area, BorderAlign, BorderSide, Button, Canvas, Cell as AuxCell,
     ControlFlow, Div, Flex, FrameStats, Text, Widget,
 };
-use crossterm::event::{KeyCode, KeyEvent};
-use crossterm::style::Color;
+use auxior::{KeyCode, KeyEvent};
 
 const TARGET_FPS: u64 = 30;
 // Linux USER_HZ; process CPU times in `/proc/self/stat` are in these ticks.
@@ -83,7 +83,7 @@ fn draw_diff_overlay(buf: &mut auxior::Buffer, stats: &FrameStats) {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::with_config(AppConfig::new().target_fps(TARGET_FPS))?;
+    let mut app = App::with_config(AppConfig::new().target_fps(TARGET_FPS).default_quit_keys())?;
 
     let mut fps_window_start = Instant::now();
     let mut frames_in_window = 0_u64;

@@ -2,10 +2,15 @@
 name = "auxior"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 license = "LGPL-3.0-or-later"
 authors = ["Anikait Sinha <anikaitsinha@gmail.com>"]
 description = "A terminal UI library for Rust"
 repository = "https://github.com/AnikaitSinha/Auxior"
+readme = "README.md"
+keywords = ["tui", "terminal", "ui", "cli", "widgets"]
+categories = ["command-line-interface", "gui"]
+exclude = ["/.github", "/target"]
 
 [dependencies]
 crossterm = "0.28"

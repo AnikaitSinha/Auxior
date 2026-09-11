@@ -6,14 +6,21 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use super::{Buffer, FrameStats, RenderContext, Terminal, keymap::KeyMap};
 
 // Target frame rate and runtime options for [`App`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
     pub target_fps: u64,
+    // Keys that end the event loop before the frame callback sees them.
+    // Empty by default so the application keeps every key; opt in with
+    // [`AppConfig::quit_key`] or [`AppConfig::default_quit_keys`].
+    pub quit_keys: Vec<(KeyCode, KeyModifiers)>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self { target_fps: 60 }
+        Self {
+            target_fps: 60,
+            quit_keys: Vec::new(),
+        }
     }
 }
 
@@ -27,8 +34,52 @@ impl AppConfig {
         self
     }
 
+    // Add an unmodified key that ends the event loop.
+    pub fn quit_key(self, code: KeyCode) -> Self {
+        self.quit_key_with(code, KeyModifiers::NONE)
+    }
+
+    // Add a key plus modifiers that ends the event loop.
+    pub fn quit_key_with(mut self, code: KeyCode, modifiers: KeyModifiers) -> Self {
+        let binding = (code, modifiers);
+        if !self.quit_keys.contains(&binding) {
+            self.quit_keys.push(binding);
+        }
+        self
+    }
+
+    // Replace the quit bindings with `keys`.
+    pub fn quit_keys<I>(mut self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = (KeyCode, KeyModifiers)>,
+    {
+        self.quit_keys = Vec::new();
+        for (code, modifiers) in keys {
+            self = self.quit_key_with(code, modifiers);
+        }
+        self
+    }
+
+    // Convenience for the common `q` / `Esc` pair.
+    pub fn default_quit_keys(self) -> Self {
+        self.quit_key(KeyCode::Char('q')).quit_key(KeyCode::Esc)
+    }
+
     pub fn frame_duration(&self) -> Duration {
         Duration::from_secs(1) / self.target_fps.max(1) as u32
+    }
+
+    fn is_quit_key(&self, event: &AppEvent) -> bool {
+        let AppEvent::Key(KeyEvent {
+            code, modifiers, ..
+        }) = event
+        else {
+            return false;
+        };
+
+        self.quit_keys
+            .iter()
+            .any(|(c, m)| c == code && m == modifiers)
     }
 }
 
@@ -123,7 +174,7 @@ impl App {
                 std::mem::take(&mut pending_events)
             };
 
-            if frame_events.iter().any(Self::is_quit_key) {
+            if frame_events.iter().any(|e| self.config.is_quit_key(e)) {
                 break;
             }
 
@@ -217,17 +268,6 @@ impl App {
 
         Ok(())
     }
-
-    fn is_quit_key(event: &AppEvent) -> bool {
-        matches!(
-            event,
-            AppEvent::Key(KeyEvent {
-                code: KeyCode::Char('q') | KeyCode::Esc,
-                modifiers: KeyModifiers::NONE,
-                ..
-            })
-        )
-    }
 }
 
 #[cfg(test)]
@@ -255,14 +295,60 @@ mod tests {
     }
 
     #[test]
-    fn quit_key_detection() {
+    fn no_quit_keys_by_default() {
+        let config = AppConfig::default();
+        assert!(config.quit_keys.is_empty());
+
+        let q = AppEvent::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        let esc = AppEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(!config.is_quit_key(&q));
+        assert!(!config.is_quit_key(&esc));
+    }
+
+    #[test]
+    fn default_quit_keys_match_q_and_esc() {
+        let config = AppConfig::new().default_quit_keys();
+
         let quit = AppEvent::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         let esc = AppEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         let other = AppEvent::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
 
-        assert!(App::is_quit_key(&quit));
-        assert!(App::is_quit_key(&esc));
-        assert!(!App::is_quit_key(&other));
-        assert!(!App::is_quit_key(&AppEvent::Tick));
+        assert!(config.is_quit_key(&quit));
+        assert!(config.is_quit_key(&esc));
+        assert!(!config.is_quit_key(&other));
+        assert!(!config.is_quit_key(&AppEvent::Tick));
+    }
+
+    #[test]
+    fn quit_key_respects_modifiers() {
+        let config = AppConfig::new().quit_key_with(KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+        let ctrl_c = AppEvent::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        let plain_c = AppEvent::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+
+        assert!(config.is_quit_key(&ctrl_c));
+        assert!(!config.is_quit_key(&plain_c));
+    }
+
+    #[test]
+    fn quit_keys_replaces_existing_bindings() {
+        let config = AppConfig::new()
+            .default_quit_keys()
+            .quit_keys([(KeyCode::Char('x'), KeyModifiers::NONE)]);
+
+        assert_eq!(
+            config.quit_keys,
+            vec![(KeyCode::Char('x'), KeyModifiers::NONE)]
+        );
+    }
+
+    #[test]
+    fn quit_key_is_not_added_twice() {
+        let config = AppConfig::new()
+            .quit_key(KeyCode::Esc)
+            .quit_key(KeyCode::Esc);
+
+        assert_eq!(config.quit_keys.len(), 1);
     }
 }

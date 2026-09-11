@@ -36,7 +36,7 @@ fn toggle_pause(state: &CounterState) {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::with_config(AppConfig::new().target_fps(60))?;
+    let mut app = App::with_config(AppConfig::new().target_fps(60).default_quit_keys())?;
     let state = CounterState::new();
 
     app.run(move |buf, _previous, _events, ctx, _stats| {

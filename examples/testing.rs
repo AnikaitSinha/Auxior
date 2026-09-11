@@ -1,8 +1,10 @@
 use std::fs;
 use std::time::Instant;
 
-use auxior::{App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, SparklineGraph, Text, Widget};
-use crossterm::style::Color;
+use auxior::Color;
+use auxior::{
+    App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Flex, SparklineGraph, Text, Widget,
+};
 
 #[derive(Clone, Copy, Default)]
 struct CpuTimes {
@@ -75,7 +77,7 @@ fn trim(history: &mut Vec<f32>, window: usize) {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::with_config(AppConfig::new().target_fps(10))?;
+    let mut app = App::with_config(AppConfig::new().target_fps(10).default_quit_keys())?;
     let window = 60;
 
     let mut prev = read_per_core_times();
