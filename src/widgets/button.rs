@@ -222,18 +222,7 @@ impl Widget for Button {
             return;
         }
 
-        let inner = self.display_text();
-        let row = 0;
-
-        for (col, ch) in inner.chars().enumerate() {
-            let x = col as u16;
-            if x >= width {
-                break;
-            }
-
-            let cell = Cell::with_fg(ch, self.fg);
-            canvas.set(x, row, cell);
-        }
+        canvas.set_str(0, 0, &self.display_text(), Cell::with_fg(' ', self.fg));
     }
 
     fn layout(&self) -> &LayoutOptions {
@@ -245,7 +234,7 @@ impl Widget for Button {
     }
 
     fn default_width(&self) -> u16 {
-        self.display_text().chars().count() as u16
+        crate::core::text_width(&self.display_text())
     }
 }
 

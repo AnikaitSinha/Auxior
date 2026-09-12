@@ -1,4 +1,6 @@
 use std::io::{self, BufWriter, Write};
+use std::sync::{Mutex, MutexGuard, Once, TryLockError};
+use std::thread::{self, ThreadId};
 
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
@@ -87,18 +89,108 @@ impl FlushState {
             self.underline = Some(cell.u);
         }
 
-        queue!(writer, Print(cell.ch))?;
-
-        // Printing in the final column may or may not wrap depending on the
-        // terminal's autowrap mode, so the cursor is only tracked within a row.
-        self.cursor = if x + 1 < wrap_width {
-            Some((x + 1, y))
-        } else {
-            None
+        // A character with no width of its own would not move the cursor, so
+        // every later cell in the run would land one column to the left.
+        let (ch, advance) = match cell.width() {
+            0 => (' ', 1),
+            w => (cell.ch, w),
         };
+        queue!(writer, Print(ch))?;
+
+        // Printing into the final column may or may not wrap depending on the
+        // terminal's autowrap mode, so the cursor is only tracked within a row.
+        self.cursor = x
+            .checked_add(advance)
+            .filter(|&next| next < wrap_width)
+            .map(|next| (next, y));
 
         Ok(())
     }
+
+    fn write_buffer_cell<W: Write>(
+        &mut self,
+        writer: &mut W,
+        buffer: &Buffer,
+        x: u16,
+        y: u16,
+        wrap_width: u16,
+    ) -> io::Result<()> {
+        let Some(cell) = buffer.get(x, y) else {
+            return Ok(());
+        };
+
+        if cell.is_continuation() {
+            let covered = x
+                .checked_sub(1)
+                .and_then(|left| buffer.get(left, y))
+                .is_some_and(|left| left.width() == 2);
+            if covered {
+                // Painted by the wide glyph to its left.
+                return Ok(());
+            }
+            // Orphaned right half: nothing covers this column, so blank it.
+            let blank = Cell { ch: ' ', ..*cell };
+            return self.write_cell(writer, x, y, &blank, wrap_width);
+        }
+
+        self.write_cell(writer, x, y, cell, wrap_width)
+    }
+}
+// Thread that owns the live terminal session, if one is active. The panic hook
+// only restores the terminal for panics on this thread, so a panicking worker
+// thread does not tear down a UI that is still running.
+static SESSION_OWNER: Mutex<Option<ThreadId>> = Mutex::new(None);
+static PANIC_HOOK: Once = Once::new();
+
+fn lock_session_owner() -> MutexGuard<'static, Option<ThreadId>> {
+    SESSION_OWNER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn claim_session() {
+    *lock_session_owner() = Some(thread::current().id());
+}
+
+// Returns whether a session was active, so restoring happens at most once.
+fn release_session() -> bool {
+    lock_session_owner().take().is_some()
+}
+
+fn session_owned_by_current_thread() -> bool {
+    // Never block inside a panic hook.
+    let guard = match SESSION_OWNER.try_lock() {
+        Ok(guard) => guard,
+        Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(TryLockError::WouldBlock) => return false,
+    };
+    *guard == Some(thread::current().id())
+}
+
+fn install_panic_hook() {
+    PANIC_HOOK.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            // Leave raw mode and the alternate screen before the previous hook
+            // prints, or the message goes to a screen that is about to vanish.
+            if session_owned_by_current_thread() {
+                let _ = restore_terminal();
+            }
+            previous(info);
+        }));
+    });
+}
+
+fn restore_terminal() -> io::Result<()> {
+    if !release_session() {
+        return Ok(());
+    }
+
+    let mut stdout = io::stdout();
+    // Attempt both steps even if the first fails.
+    let screen = execute!(stdout, Show, LeaveAlternateScreen);
+    let raw = disable_raw_mode();
+    screen.and(raw)
 }
 
 pub struct Terminal {
@@ -110,11 +202,25 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new() -> io::Result<Self> {
-        enable_raw_mode()?;
-        let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, Hide)?;
+        install_panic_hook();
 
-        let (width, height) = size()?;
+        enable_raw_mode()?;
+        claim_session();
+
+        let setup = (|| {
+            let mut stdout = io::stdout();
+            execute!(stdout, EnterAlternateScreen, Hide)?;
+            size()
+        })();
+
+        let (width, height) = match setup {
+            Ok(size) => size,
+            Err(err) => {
+                // No `Terminal` exists yet, so `Drop` will not undo raw mode.
+                let _ = restore_terminal();
+                return Err(err);
+            }
+        };
 
         Ok(Self {
             width,
@@ -162,10 +268,7 @@ impl Terminal {
 
         for y in 0..buffer.height {
             for x in 0..buffer.width {
-                let Some(cell) = buffer.get(x, y) else {
-                    continue;
-                };
-                state.write_cell(writer, x, y, cell, wrap_width)?;
+                state.write_buffer_cell(writer, buffer, x, y, wrap_width)?;
             }
         }
 
@@ -199,10 +302,7 @@ impl Terminal {
         let mut state = FlushState::default();
 
         for &(x, y) in ordered {
-            let Some(cell) = buffer.get(x, y) else {
-                continue;
-            };
-            state.write_cell(writer, x, y, cell, wrap_width)?;
+            state.write_buffer_cell(writer, buffer, x, y, wrap_width)?;
         }
 
         writer.flush()?;
@@ -216,10 +316,7 @@ impl Terminal {
     }
 
     fn restore(&mut self) -> io::Result<()> {
-        let mut stdout = io::stdout();
-        execute!(stdout, Show, LeaveAlternateScreen)?;
-        disable_raw_mode()?;
-        Ok(())
+        restore_terminal()
     }
 
     #[cfg(test)]
@@ -491,5 +588,80 @@ mod tests {
         let mut out = Vec::new();
         Terminal::flush_cells_to(&buf, &[], buf.width, &mut out).unwrap();
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn wide_glyph_advances_cursor_by_two() {
+        let mut buf = Buffer::new(6, 1);
+        buf.set(0, 0, Cell::new('a'));
+        buf.set(1, 0, Cell::new('日'));
+        buf.set(3, 0, Cell::new('b'));
+
+        let coords: Vec<(u16, u16)> = (0..4).map(|x| (x, 0)).collect();
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &coords, buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert!(output.contains("a日b"), "one run: {output:?}");
+        assert!(!out.contains(&0), "continuation cells must not be printed");
+        assert_eq!(move_to_count(&output), 1, "{output:?}");
+    }
+
+    #[test]
+    fn wide_glyph_ending_at_wrap_edge_forgets_cursor() {
+        let mut buf = Buffer::new(3, 2);
+        buf.set(1, 0, Cell::new('日'));
+        buf.set(0, 1, Cell::new('b'));
+
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(1, 0), (2, 0), (0, 1)], buf.width, &mut out).unwrap();
+
+        assert_eq!(move_to_count(&String::from_utf8_lossy(&out)), 2);
+    }
+
+    #[test]
+    fn orphaned_continuation_prints_as_space() {
+        let mut buf = Buffer::new(3, 1);
+        *buf.get_mut(1, 0).unwrap() = Cell::continuation_of(Cell::new('x'));
+
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0), (2, 0)], buf.width, &mut out).unwrap();
+
+        assert!(!out.contains(&0));
+        assert_eq!(move_to_count(&String::from_utf8_lossy(&out)), 1);
+    }
+
+    #[test]
+    fn zero_width_cell_prints_as_space_to_keep_columns_aligned() {
+        let mut buf = Buffer::new(3, 1);
+        buf.set(0, 0, Cell::new('\u{0301}'));
+        buf.set(1, 0, Cell::new('b'));
+
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0)], buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert!(output.contains(" b"), "{output:?}");
+        assert!(!output.contains('\u{0301}'));
+        assert_eq!(move_to_count(&output), 1);
+    }
+
+    #[test]
+    fn session_is_owned_by_the_claiming_thread_and_released_once() {
+        // One test so nothing else races on the global session owner.
+        assert!(!session_owned_by_current_thread());
+
+        claim_session();
+        assert!(session_owned_by_current_thread());
+        assert!(
+            !std::thread::spawn(session_owned_by_current_thread)
+                .join()
+                .unwrap(),
+            "a panic on another thread must not restore the terminal"
+        );
+
+        assert!(release_session());
+        assert!(!release_session(), "restoring twice must be a no-op");
+        assert!(!session_owned_by_current_thread());
     }
 }

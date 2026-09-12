@@ -1,3 +1,5 @@
+use unicode_width::UnicodeWidthChar;
+
 use crate::{Area, Canvas, Cell, RenderContext, Text};
 
 use super::button::{BorderAlign, BorderSide, Button};
@@ -451,7 +453,11 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
     for button in buttons.iter().filter(|button| {
         button.border_side() == Some(side) && button.border_align() == BorderAlign::Start
     }) {
-        let segment: Vec<char> = button.display_text().chars().collect();
+        let segment: Vec<char> = button
+            .display_text()
+            .chars()
+            .filter(|ch| ch.width().unwrap_or(0) > 0)
+            .collect();
         let height = (segment.len() as u16).min(h.saturating_sub(y).saturating_sub(1));
         if height == 0 {
             break;
@@ -459,7 +465,9 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
 
         for (row, ch) in segment.iter().take(height as usize).enumerate() {
             let y_pos = y + row as u16;
-            canvas.set(x, y_pos, Cell::with_fg(*ch, button.fg_color()));
+            canvas
+                .subcanvas(x, y_pos, 1, 1)
+                .set(0, 0, Cell::with_fg(*ch, button.fg_color()));
             occupied[y_pos as usize] = true;
         }
         button.register_key();
@@ -474,7 +482,11 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
         })
         .rev()
     {
-        let segment: Vec<char> = button.display_text().chars().collect();
+        let segment: Vec<char> = button
+            .display_text()
+            .chars()
+            .filter(|ch| ch.width().unwrap_or(0) > 0)
+            .collect();
         let seg_len = segment.len() as u16;
         if seg_len == 0 || seg_len > end_y {
             continue;
@@ -483,7 +495,9 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
         let y = end_y.saturating_sub(seg_len.saturating_sub(1));
         for (row, ch) in segment.iter().enumerate() {
             let y_pos = y + row as u16;
-            canvas.set(x, y_pos, Cell::with_fg(*ch, button.fg_color()));
+            canvas
+                .subcanvas(x, y_pos, 1, 1)
+                .set(0, 0, Cell::with_fg(*ch, button.fg_color()));
             occupied[y_pos as usize] = true;
         }
         button.register_key();
@@ -846,5 +860,31 @@ mod tests {
         let buf = render_div(&div, 20, 12);
         assert_eq!(buf.get(2, 2).unwrap().ch, 'T');
         assert_eq!(buf.get(2, 4).unwrap().ch, '╭');
+    }
+
+    #[test]
+    fn wide_title_keeps_border_aligned() {
+        fn top_row(title: &str) -> Vec<char> {
+            let mut buf = crate::Buffer::new(14, 3);
+            let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 14, 3));
+            Div::new()
+                .border(true)
+                .title(Text::new(title))
+                .render(&mut canvas);
+            (0..14)
+                .map(|x| {
+                    let cell = buf.get(x, 0).unwrap();
+                    if cell.is_continuation() { '+' } else { cell.ch }
+                })
+                .collect()
+        }
+
+        let wide = top_row("日本");
+        let ascii = top_row("abcd");
+
+        assert_eq!(&wide[2..6], &['日', '+', '本', '+']);
+        // Same display width, so everything outside the title must match.
+        assert_eq!(wide[..2], ascii[..2]);
+        assert_eq!(wide[6..], ascii[6..]);
     }
 }

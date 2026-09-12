@@ -31,9 +31,51 @@ impl Buffer {
         self.index(x, y).map(|i| &mut self.cells[i])
     }
 
+    // Writes `cell`, keeping double-width glyphs intact: a wide glyph claims
+    // the cell to its right as a continuation, and overwriting either half of
+    // an existing wide glyph blanks the other half so no orphan is left.
     pub fn set(&mut self, x: u16, y: u16, cell: Cell) {
-        if let Some(c) = self.get_mut(x, y) {
-            *c = cell;
+        let Some(i) = self.index(x, y) else {
+            return;
+        };
+
+        self.split_wide_glyph(x, y);
+
+        if cell.width() == 2 {
+            match self.index(x.saturating_add(1), y) {
+                Some(next) if x < u16::MAX => {
+                    self.split_wide_glyph(x + 1, y);
+                    self.cells[i] = cell;
+                    self.cells[next] = Cell::continuation_of(cell);
+                }
+                // No room for the right half in the last column.
+                _ => self.cells[i] = Cell { ch: ' ', ..cell },
+            }
+        } else {
+            self.cells[i] = cell;
+        }
+    }
+
+    // If (x, y) is either half of a wide glyph, blank both halves.
+    fn split_wide_glyph(&mut self, x: u16, y: u16) {
+        let Some(i) = self.index(x, y) else {
+            return;
+        };
+
+        if self.cells[i].is_continuation() {
+            self.cells[i].ch = ' ';
+            if let Some(left) = x.checked_sub(1).and_then(|lx| self.index(lx, y)) {
+                if self.cells[left].width() == 2 {
+                    self.cells[left].ch = ' ';
+                }
+            }
+        } else if self.cells[i].width() == 2 {
+            self.cells[i].ch = ' ';
+            if let Some(right) = self.index(x.saturating_add(1), y) {
+                if self.cells[right].is_continuation() {
+                    self.cells[right].ch = ' ';
+                }
+            }
         }
     }
 
@@ -315,5 +357,62 @@ mod tests {
     fn as_slice_len_matches_cell_count() {
         let buf = Buffer::new(4, 3);
         assert_eq!(buf.as_slice().len(), 12);
+    }
+
+    fn row(buf: &Buffer, y: u16) -> String {
+        (0..buf.width)
+            .map(|x| {
+                let cell = buf.get(x, y).unwrap();
+                if cell.is_continuation() { '+' } else { cell.ch }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn wide_glyph_claims_the_next_cell() {
+        let mut buf = Buffer::new(4, 1);
+        buf.set(1, 0, Cell::with_fg('日', Color::Red));
+
+        assert_eq!(row(&buf, 0), " 日+ ");
+        assert_eq!(buf.get(2, 0).unwrap().fg, Color::Red);
+    }
+
+    #[test]
+    fn wide_glyph_in_last_column_becomes_a_space() {
+        let mut buf = Buffer::new(3, 1);
+        buf.set(2, 0, Cell::new('日'));
+        assert_eq!(row(&buf, 0), "   ");
+    }
+
+    #[test]
+    fn overwriting_left_half_blanks_right_half() {
+        let mut buf = Buffer::new(4, 1);
+        buf.set(1, 0, Cell::new('日'));
+        buf.set(1, 0, Cell::new('a'));
+        assert_eq!(row(&buf, 0), " a  ");
+    }
+
+    #[test]
+    fn overwriting_right_half_blanks_left_half() {
+        let mut buf = Buffer::new(4, 1);
+        buf.set(1, 0, Cell::new('日'));
+        buf.set(2, 0, Cell::new('a'));
+        assert_eq!(row(&buf, 0), "  a ");
+    }
+
+    #[test]
+    fn wide_glyph_shifted_by_one_over_another() {
+        let mut buf = Buffer::new(5, 1);
+        buf.set(0, 0, Cell::new('日'));
+        buf.set(1, 0, Cell::new('本'));
+        assert_eq!(row(&buf, 0), " 本+  ");
+    }
+
+    #[test]
+    fn wide_glyph_overwriting_next_wide_glyph_blanks_its_tail() {
+        let mut buf = Buffer::new(5, 1);
+        buf.set(2, 0, Cell::new('本'));
+        buf.set(1, 0, Cell::new('日'));
+        assert_eq!(row(&buf, 0), " 日+  ");
     }
 }

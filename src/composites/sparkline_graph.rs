@@ -214,14 +214,7 @@ impl Widget for SparklineGraph {
 
         let min_total = self.min_len_label + self.min_len_bar + self.min_len_status + 2;
         if width < min_total {
-            let msg = "error:1";
-            for (i, ch) in msg.chars().enumerate() {
-                let x = i as u16;
-                if x >= width {
-                    break;
-                }
-                canvas.set(x, 0, crate::Cell::with_fg(ch, Color::Red));
-            }
+            canvas.set_str(0, 0, "error:1", crate::Cell::with_fg(' ', Color::Red));
             return;
         }
 
@@ -262,8 +255,8 @@ impl Widget for SparklineGraph {
             }
         };
 
-        let value_len = value.chars().count() as u16;
-        let suffix_len = suffix.chars().count() as u16;
+        let value_len = crate::core::text_width(&value);
+        let suffix_len = crate::core::text_width(&suffix);
         let used = value_len.saturating_add(suffix_len).min(status_w);
         let pad = status_w.saturating_sub(used);
 

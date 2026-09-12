@@ -1,3 +1,4 @@
+use crate::core::text_width;
 use crate::{Canvas, Cell};
 use crossterm::style::Color;
 
@@ -77,8 +78,18 @@ impl Text {
 
 impl Widget for Text {
     fn render(&self, canvas: &mut Canvas) {
-        let max_w = canvas.width();
         let max_h = canvas.height();
+
+        let mut style = Cell::with_fg(' ', self.fg);
+        if self.bold {
+            style = style.set_bold();
+        }
+        if self.italic {
+            style = style.set_italic();
+        }
+        if self.underline {
+            style = style.set_underline();
+        }
 
         for (row, line) in self.content.lines().enumerate() {
             let y = row as u16;
@@ -86,23 +97,7 @@ impl Widget for Text {
                 break;
             }
 
-            for (col, ch) in line.chars().enumerate() {
-                let x = col as u16;
-                if x >= max_w {
-                    break;
-                }
-                let mut cell: Cell = Cell::with_fg(ch, self.fg);
-                if self.bold {
-                    cell = cell.set_bold();
-                }
-                if self.italic {
-                    cell = cell.set_italic();
-                }
-                if self.underline {
-                    cell = cell.set_underline();
-                }
-                canvas.set(x, y, cell);
-            }
+            canvas.set_str(0, y, line, style);
         }
     }
 
@@ -115,11 +110,7 @@ impl Widget for Text {
     }
 
     fn default_width(&self) -> u16 {
-        self.content
-            .lines()
-            .map(|line| line.chars().count() as u16)
-            .max()
-            .unwrap_or(1)
+        self.content.lines().map(text_width).max().unwrap_or(1)
     }
 }
 
@@ -162,5 +153,28 @@ mod tests {
         assert_eq!(buf.get(0, 0).unwrap().ch, 'H');
         assert_eq!(buf.get(2, 0).unwrap().ch, 'l');
         assert!(buf.get(3, 0).is_none());
+    }
+
+    #[test]
+    fn default_width_counts_display_columns() {
+        assert_eq!(Text::new("日本語").default_width(), 6);
+        assert_eq!(Text::new("ab\n日本").default_width(), 4);
+        assert_eq!(Text::new("e\u{0301}").default_width(), 1);
+    }
+
+    #[test]
+    fn renders_wide_characters_across_two_columns() {
+        let buf = render_text(&Text::new("日a"), 5, 1);
+        assert_eq!(buf.get(0, 0).unwrap().ch, '日');
+        assert!(buf.get(1, 0).unwrap().is_continuation());
+        assert_eq!(buf.get(2, 0).unwrap().ch, 'a');
+    }
+
+    #[test]
+    fn styles_apply_to_wide_characters() {
+        let buf = render_text(&Text::new("日").fg(Color::Red).bold(true), 4, 1);
+        let cell = buf.get(0, 0).unwrap();
+        assert_eq!(cell.fg, Color::Red);
+        assert!(cell.b);
     }
 }
