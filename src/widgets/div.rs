@@ -463,14 +463,18 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
             break;
         }
 
+        let (focus, focused) = button.claim_focus();
+        let style = button.label_style(focused);
+
         for (row, ch) in segment.iter().take(height as usize).enumerate() {
             let y_pos = y + row as u16;
             canvas
                 .subcanvas(x, y_pos, 1, 1)
-                .set(0, 0, Cell::with_fg(*ch, button.fg_color()));
+                .set(0, 0, Cell { ch: *ch, ..style });
             occupied[y_pos as usize] = true;
         }
-        button.register_input(canvas.subcanvas(x, y, 1, height).global_area());
+        let area = canvas.subcanvas(x, y, 1, height).global_area();
+        button.register_input(area, Some(focus));
         y = y.saturating_add(height).saturating_add(1);
     }
 
@@ -493,14 +497,17 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
         }
 
         let y = end_y.saturating_sub(seg_len.saturating_sub(1));
+        let (focus, focused) = button.claim_focus();
+        let style = button.label_style(focused);
         for (row, ch) in segment.iter().enumerate() {
             let y_pos = y + row as u16;
             canvas
                 .subcanvas(x, y_pos, 1, 1)
-                .set(0, 0, Cell::with_fg(*ch, button.fg_color()));
+                .set(0, 0, Cell { ch: *ch, ..style });
             occupied[y_pos as usize] = true;
         }
-        button.register_input(canvas.subcanvas(x, y, 1, seg_len).global_area());
+        let area = canvas.subcanvas(x, y, 1, seg_len).global_area();
+        button.register_input(area, Some(focus));
         end_y = y.saturating_sub(2);
     }
 
@@ -543,6 +550,7 @@ fn draw_title(canvas: &mut Canvas, title: &Text) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::dispatch_input;
     use crate::{Area, Buffer, Text};
 
     fn render_div(div: &Div, width: u16, height: u16) -> Buffer {
@@ -760,7 +768,7 @@ mod tests {
         let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 20, 5));
         div.render(&mut canvas);
 
-        KeyMap::dispatch(&[AppEvent::Key(KeyEvent::new(
+        dispatch_input(&[AppEvent::Key(KeyEvent::new(
             KeyCode::Char('k'),
             KeyModifiers::NONE,
         ))]);
@@ -918,11 +926,45 @@ mod tests {
             .render(&mut canvas);
 
         // "╰ab╭" runs down the left border on rows 1..=4.
-        MouseMap::dispatch(&[click(0, 1), click(0, 4)]);
+        dispatch_input(&[click(0, 1), click(0, 4)]);
         assert_eq!(count.get(), 2);
 
         // Below the segment, and one column into the interior.
-        MouseMap::dispatch(&[click(0, 5), click(1, 2)]);
+        dispatch_input(&[click(0, 5), click(1, 2)]);
         assert_eq!(count.get(), 2);
+    }
+
+    #[test]
+    fn vertical_border_button_takes_focus_and_highlights() {
+        use crate::core::{AppEvent, begin_frame};
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        crate::Focus::clear();
+        let mut buf = crate::Buffer::new(10, 8);
+        let draw = |events: &[AppEvent], buf: &mut crate::Buffer| {
+            dispatch_input(events);
+            begin_frame();
+            let mut canvas = Canvas::new(buf, Area::new(0, 0, 10, 8));
+            Div::new()
+                .border(true)
+                .border_button(Button::border_button("ab").side(BorderSide::Left))
+                .render(&mut canvas);
+        };
+
+        draw(&[], &mut buf);
+        assert!(!buf.get(0, 2).unwrap().b);
+
+        draw(
+            &[AppEvent::Key(KeyEvent::new(
+                KeyCode::Tab,
+                KeyModifiers::NONE,
+            ))],
+            &mut buf,
+        );
+        // "╰ab╭" runs down rows 1..=4; every glyph of it is highlighted.
+        for row in 1..=4 {
+            let cell = buf.get(0, row).unwrap();
+            assert!(cell.b && cell.u, "row {row} not highlighted");
+        }
     }
 }

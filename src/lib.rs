@@ -12,8 +12,8 @@ pub use crossterm::style::Color;
 
 pub use composites::{List, SparklineGraph, StatusBar, StatusType, Table};
 pub use core::{
-    App, AppConfig, AppEvent, Area, Buffer, Canvas, Cell, ControlFlow, FrameStats, KeyBinding,
-    RenderContext, Terminal,
+    App, AppConfig, AppEvent, Area, Buffer, Canvas, Cell, ControlFlow, Focus, FocusId, FrameStats,
+    KeyBinding, RenderContext, Terminal,
 };
 pub use widgets::{
     Bar, BorderAlign, BorderSide, Button, Div, DivOptions, Flex, FlexDirection, Grid,

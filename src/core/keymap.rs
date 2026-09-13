@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use super::AppEvent;
+use super::{Focus, FocusId};
 
 // A key plus the modifiers held with it, as an application names it.
 //
@@ -81,21 +81,28 @@ thread_local! {
     static KEY_MAP: RefCell<KeyMap> = RefCell::new(KeyMap::new());
 }
 
+type Handler = Box<dyn FnMut()>;
+
 // Frame-local map of key bindings collected while widgets render.
 #[derive(Default)]
 pub struct KeyMap {
-    bindings: HashMap<KeyBinding, Box<dyn FnMut()>>,
+    bindings: HashMap<KeyBinding, Handler>,
+    // Bindings of focusable widgets, keyed by widget. Only the widget holding
+    // focus when a key arrives gets it, and these beat `bindings`.
+    focused: HashMap<(FocusId, KeyBinding), Handler>,
 }
 
 impl KeyMap {
     pub fn new() -> Self {
-        Self {
-            bindings: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn clear() {
-        KEY_MAP.with(|map| map.borrow_mut().bindings.clear());
+        KEY_MAP.with(|map| {
+            let mut map = map.borrow_mut();
+            map.bindings.clear();
+            map.focused.clear();
+        });
     }
 
     // A later binding on the same key replaces an earlier one, so the
@@ -108,25 +115,48 @@ impl KeyMap {
         });
     }
 
-    pub fn dispatch(events: &[AppEvent]) {
+    // Binds a key for widget `id`, applied while it holds focus. Takes
+    // precedence over `bind`.
+    pub fn bind_focused(id: FocusId, key: impl Into<KeyBinding>, handler: impl FnMut() + 'static) {
         KEY_MAP.with(|map| {
-            let mut map = map.borrow_mut();
-            if map.bindings.is_empty() {
-                return;
-            }
-
-            for event in events {
-                let AppEvent::Key(key) = event else {
-                    continue;
-                };
-                let Some(binding) = KeyBinding::from_event(key) else {
-                    continue;
-                };
-                if let Some(handler) = map.bindings.get_mut(&binding) {
-                    handler();
-                }
-            }
+            map.borrow_mut()
+                .focused
+                .insert((id, key.into()), Box::new(handler));
         });
+    }
+
+    // Runs the handler bound to `binding`, returning whether there was one.
+    pub fn fire(binding: KeyBinding) -> bool {
+        KEY_MAP.with(|map| Self::run(&mut map.borrow_mut().bindings, binding))
+    }
+
+    // Runs the handler for `binding` belonging to whichever widget holds focus
+    // right now, so a key that follows a focus change in the same batch
+    // reaches the newly focused widget.
+    pub fn fire_focused(binding: KeyBinding) -> bool {
+        let Some(id) = Focus::focused() else {
+            return false;
+        };
+
+        KEY_MAP.with(
+            |map| match map.borrow_mut().focused.get_mut(&(id, binding)) {
+                Some(handler) => {
+                    handler();
+                    true
+                }
+                None => false,
+            },
+        )
+    }
+
+    fn run(bindings: &mut HashMap<KeyBinding, Handler>, binding: KeyBinding) -> bool {
+        match bindings.get_mut(&binding) {
+            Some(handler) => {
+                handler();
+                true
+            }
+            None => false,
+        }
     }
 }
 
@@ -136,6 +166,7 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
+    use crate::core::{AppEvent, dispatch_input};
     use crossterm::event::{KeyEventKind, KeyEventState};
 
     fn counter() -> (Rc<Cell<u32>>, impl FnMut() + 'static) {
@@ -167,7 +198,7 @@ mod tests {
         let (count, handler) = counter();
         KeyMap::bind('a', handler);
 
-        KeyMap::dispatch(&[press(KeyCode::Char('a'))]);
+        dispatch_input(&[press(KeyCode::Char('a'))]);
 
         assert_eq!(count.get(), 1);
     }
@@ -178,7 +209,7 @@ mod tests {
         let (count, handler) = counter();
         KeyMap::bind('a', handler);
 
-        KeyMap::dispatch(&[press(KeyCode::Char('z'))]);
+        dispatch_input(&[press(KeyCode::Char('z'))]);
 
         assert_eq!(count.get(), 0);
     }
@@ -191,7 +222,7 @@ mod tests {
         KeyMap::bind(KeyCode::Left, arrow_handler);
         KeyMap::bind(KeyCode::Enter, enter_handler);
 
-        KeyMap::dispatch(&[
+        dispatch_input(&[
             press(KeyCode::Left),
             press(KeyCode::Enter),
             press(KeyCode::Right),
@@ -206,10 +237,10 @@ mod tests {
         let (count, handler) = counter();
         KeyMap::bind(KeyBinding::ctrl(KeyCode::Char('c')), handler);
 
-        KeyMap::dispatch(&[press(KeyCode::Char('c'))]);
+        dispatch_input(&[press(KeyCode::Char('c'))]);
         assert_eq!(count.get(), 0);
 
-        KeyMap::dispatch(&[press_with(KeyCode::Char('c'), KeyModifiers::CONTROL)]);
+        dispatch_input(&[press_with(KeyCode::Char('c'), KeyModifiers::CONTROL)]);
         assert_eq!(count.get(), 1);
     }
 
@@ -220,7 +251,7 @@ mod tests {
         KeyMap::bind('A', handler);
 
         // Terminals report a capital either way.
-        KeyMap::dispatch(&[
+        dispatch_input(&[
             press(KeyCode::Char('A')),
             press_with(KeyCode::Char('A'), KeyModifiers::SHIFT),
         ]);
@@ -234,10 +265,10 @@ mod tests {
         let (count, handler) = counter();
         KeyMap::bind(KeyBinding::shift(KeyCode::Tab), handler);
 
-        KeyMap::dispatch(&[press(KeyCode::Tab)]);
+        dispatch_input(&[press(KeyCode::Tab)]);
         assert_eq!(count.get(), 0);
 
-        KeyMap::dispatch(&[press_with(KeyCode::Tab, KeyModifiers::SHIFT)]);
+        dispatch_input(&[press_with(KeyCode::Tab, KeyModifiers::SHIFT)]);
         assert_eq!(count.get(), 1);
     }
 
@@ -248,7 +279,7 @@ mod tests {
         let (count, handler) = counter();
         KeyMap::bind('a', handler);
 
-        KeyMap::dispatch(&[
+        dispatch_input(&[
             event_of_kind(KeyCode::Char('a'), KeyEventKind::Press),
             event_of_kind(KeyCode::Char('a'), KeyEventKind::Release),
         ]);
@@ -262,7 +293,7 @@ mod tests {
         let (count, handler) = counter();
         KeyMap::bind('a', handler);
 
-        KeyMap::dispatch(&[
+        dispatch_input(&[
             event_of_kind(KeyCode::Char('a'), KeyEventKind::Press),
             event_of_kind(KeyCode::Char('a'), KeyEventKind::Repeat),
         ]);
@@ -278,7 +309,7 @@ mod tests {
         KeyMap::bind('a', first_handler);
         KeyMap::bind('a', second_handler);
 
-        KeyMap::dispatch(&[press(KeyCode::Char('a'))]);
+        dispatch_input(&[press(KeyCode::Char('a'))]);
 
         assert_eq!((first.get(), second.get()), (0, 1));
     }
@@ -290,7 +321,7 @@ mod tests {
         KeyMap::bind('a', handler);
 
         KeyMap::clear();
-        KeyMap::dispatch(&[press(KeyCode::Char('a'))]);
+        dispatch_input(&[press(KeyCode::Char('a'))]);
 
         assert_eq!(count.get(), 0);
     }
@@ -306,5 +337,29 @@ mod tests {
             KeyBinding::from((KeyCode::Char('c'), KeyModifiers::CONTROL)),
             KeyBinding::ctrl(KeyCode::Char('c'))
         );
+    }
+
+    #[test]
+    fn focused_bindings_apply_to_the_widget_holding_focus() {
+        KeyMap::clear();
+        Focus::clear();
+        let (first, second) = (FocusId::named("first"), FocusId::named("second"));
+        let (first_count, first_handler) = counter();
+        let (second_count, second_handler) = counter();
+        KeyMap::bind_focused(first, 'a', first_handler);
+        KeyMap::bind_focused(second, 'a', second_handler);
+
+        assert!(
+            !KeyMap::fire_focused(KeyBinding::from('a')),
+            "nothing focused"
+        );
+        assert!(!KeyMap::fire(KeyBinding::from('a')), "not a global binding");
+
+        Focus::set(second);
+        assert!(KeyMap::fire_focused(KeyBinding::from('a')));
+        assert_eq!((first_count.get(), second_count.get()), (0, 1));
+
+        KeyMap::clear();
+        assert!(!KeyMap::fire_focused(KeyBinding::from('a')));
     }
 }

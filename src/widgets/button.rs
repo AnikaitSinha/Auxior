@@ -1,9 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crossterm::event::KeyCode;
 use crossterm::style::Color;
 
-use crate::core::{KeyBinding, KeyMap, MouseMap};
+use crate::core::{Focus, FocusId, KeyBinding, KeyMap, MouseMap};
 use crate::{Area, Canvas, Cell, LayoutOptions, Widget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -31,6 +32,7 @@ pub struct Button {
     state: bool,
     border_side: Option<BorderSide>,
     border_align: BorderAlign,
+    focus_id: Option<FocusId>,
     on_action: RefCell<Option<Box<dyn FnMut()>>>,
 }
 
@@ -52,6 +54,7 @@ impl Button {
             state: false,
             border_side: None,
             border_align: BorderAlign::Start,
+            focus_id: None,
             on_action: RefCell::new(None),
         }
     }
@@ -66,6 +69,7 @@ impl Button {
             state: false,
             border_side: None,
             border_align: BorderAlign::Start,
+            focus_id: None,
             on_action: RefCell::new(None),
         }
     }
@@ -81,6 +85,7 @@ impl Button {
             state: false,
             border_side: Some(BorderSide::Top),
             border_align: BorderAlign::Start,
+            focus_id: None,
             on_action: RefCell::new(None),
         }
     }
@@ -143,6 +148,13 @@ impl Button {
         self
     }
 
+    // A stable focus identity, for a button drawn after widgets that can
+    // appear or disappear. Must be unique among the widgets on screen.
+    pub fn id(mut self, name: &str) -> Self {
+        self.focus_id = Some(FocusId::named(name));
+        self
+    }
+
     pub fn on_press(self, f: impl FnMut() + 'static) -> Self {
         *self.on_action.borrow_mut() = Some(Box::new(f));
         self
@@ -169,20 +181,46 @@ impl Button {
         <Self as Widget>::render(self, canvas);
     }
 
-    // Hands the press handler to this frame's key and mouse maps, so either
-    // the bound key or a click inside `area` fires it.
-    pub(crate) fn register_input(&self, area: Area) {
-        let Some(handler) = self.on_action.borrow_mut().take() else {
-            return;
-        };
-        let handler = Rc::new(RefCell::new(handler));
+    // Registers this button for focus this frame, in draw order.
+    pub(crate) fn claim_focus(&self) -> (FocusId, bool) {
+        Focus::register(self.focus_id)
+    }
 
-        if let Some(key) = self.key {
-            let handler = Rc::clone(&handler);
-            KeyMap::bind(key, move || (*handler.borrow_mut())());
+    // The label style, highlighted while the button has focus.
+    pub(crate) fn label_style(&self, focused: bool) -> Cell {
+        let style = Cell::with_fg(' ', self.fg);
+        if focused {
+            style.set_bold().set_underline()
+        } else {
+            style
+        }
+    }
+
+    // Hands the press handler to this frame's input maps: the bound key fires
+    // it; with `focus`, so do a click inside `area` and, while the button holds
+    // focus, Enter and Space.
+    pub(crate) fn register_input(&self, area: Area, focus: Option<FocusId>) {
+        let taken = self.on_action.borrow_mut().take();
+        let has_handler = taken.is_some();
+        let handler: Shared = Rc::new(RefCell::new(
+            taken.unwrap_or_else(|| Box::new(|| {}) as Box<dyn FnMut()>),
+        ));
+
+        if has_handler {
+            if let Some(key) = self.key {
+                KeyMap::bind(key, share(&handler));
+            }
         }
 
-        MouseMap::region(area, move || (*handler.borrow_mut())());
+        let Some(id) = focus else {
+            return;
+        };
+        // Registered whether or not the button is focused now, so Enter still
+        // reaches it when focus lands on it earlier in the same batch.
+        KeyMap::bind_focused(id, KeyCode::Enter, share(&handler));
+        KeyMap::bind_focused(id, ' ', share(&handler));
+        // Registered even without a handler, so clicking still focuses.
+        MouseMap::region_focusable(area, id, share(&handler));
     }
 
     pub(crate) fn display_text(&self) -> String {
@@ -203,6 +241,13 @@ impl Button {
     }
 }
 
+type Shared = Rc<RefCell<Box<dyn FnMut()>>>;
+
+fn share(handler: &Shared) -> impl FnMut() + 'static {
+    let handler = Rc::clone(handler);
+    move || (*handler.borrow_mut())()
+}
+
 impl std::fmt::Debug for Button {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Button")
@@ -220,12 +265,20 @@ impl std::fmt::Debug for Button {
 
 impl Widget for Button {
     fn render(&self, canvas: &mut Canvas) {
-        let used = canvas.set_str(0, 0, &self.display_text(), Cell::with_fg(' ', self.fg));
+        // A button with no room to draw can't be seen, so it is not a Tab stop;
+        // its key binding still works.
+        if canvas.width() == 0 || canvas.height() == 0 {
+            self.register_input(Area::new(0, 0, 0, 0), None);
+            return;
+        }
+
+        let (focus, focused) = self.claim_focus();
+        let used = canvas.set_str(0, 0, &self.display_text(), self.label_style(focused));
 
         // Only the drawn label is clickable, not any extra space the layout
         // gave the button.
         let origin = canvas.global_area();
-        self.register_input(Area::new(origin.x, origin.y, used, 1));
+        self.register_input(Area::new(origin.x, origin.y, used, 1), Some(focus));
     }
 
     fn layout(&self) -> &LayoutOptions {
@@ -247,8 +300,9 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::core::{AppEvent, KeyMap, MouseMap};
+    use crate::core::{AppEvent, KeyMap, MouseMap, dispatch_input};
     use crate::{Area, Buffer, Canvas};
+    use crate::{Focus, core::begin_frame};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use crossterm::style::Color;
 
@@ -355,7 +409,7 @@ mod tests {
             KeyCode::Char('g'),
             KeyModifiers::NONE,
         ))];
-        KeyMap::dispatch(&events);
+        dispatch_input(&events);
 
         assert_eq!(count.get(), 1);
     }
@@ -378,7 +432,7 @@ mod tests {
             KeyCode::Char('x'),
             KeyModifiers::NONE,
         ))];
-        KeyMap::dispatch(&events);
+        dispatch_input(&events);
 
         assert_eq!(count.get(), 0);
     }
@@ -407,8 +461,8 @@ mod tests {
         // "[ Save ]" is 8 columns, drawn at x = 4..=11 on row 1.
         counting(Button::push("Save"), &count).render(&mut canvas.subcanvas(4, 1, 16, 1));
 
-        MouseMap::dispatch(&[left_click(4, 1)]);
-        MouseMap::dispatch(&[left_click(11, 1)]);
+        dispatch_input(&[left_click(4, 1)]);
+        dispatch_input(&[left_click(11, 1)]);
         assert_eq!(count.get(), 2);
     }
 
@@ -422,7 +476,7 @@ mod tests {
         counting(Button::push("Save"), &count).render(&mut canvas.subcanvas(4, 1, 16, 1));
 
         // Past the label but inside the space the layout allotted; and above it.
-        MouseMap::dispatch(&[left_click(12, 1), left_click(4, 0), left_click(3, 1)]);
+        dispatch_input(&[left_click(12, 1), left_click(4, 0), left_click(3, 1)]);
         assert_eq!(count.get(), 0);
     }
 
@@ -436,11 +490,11 @@ mod tests {
 
         counting(Button::push("S").key('s'), &count).render(&mut canvas);
 
-        KeyMap::dispatch(&[AppEvent::Key(KeyEvent::new(
+        dispatch_input(&[AppEvent::Key(KeyEvent::new(
             KeyCode::Char('s'),
             KeyModifiers::NONE,
         ))]);
-        MouseMap::dispatch(&[left_click(0, 0)]);
+        dispatch_input(&[left_click(0, 0)]);
         assert_eq!(count.get(), 2);
     }
 
@@ -454,9 +508,9 @@ mod tests {
         // Only "[ Sa" fits in 4 columns.
         counting(Button::push("Save"), &count).render(&mut canvas.subcanvas(0, 0, 4, 1));
 
-        MouseMap::dispatch(&[left_click(5, 0)]);
+        dispatch_input(&[left_click(5, 0)]);
         assert_eq!(count.get(), 0);
-        MouseMap::dispatch(&[left_click(3, 0)]);
+        dispatch_input(&[left_click(3, 0)]);
         assert_eq!(count.get(), 1);
     }
 
@@ -470,10 +524,129 @@ mod tests {
 
         counting(Button::push("Go").key(KeyCode::Enter), &count).render(&mut canvas);
 
-        KeyMap::dispatch(&[AppEvent::Key(KeyEvent::new(
+        dispatch_input(&[AppEvent::Key(KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,
         ))]);
         assert_eq!(count.get(), 1);
+    }
+
+    // One frame as `App::run` does it: route `events` against the previous
+    // frame's registrations, reset them, then draw.
+    fn frame(buf: &mut Buffer, events: &[AppEvent], draw: impl FnOnce(&mut Canvas)) {
+        dispatch_input(events);
+        begin_frame();
+        let area = Area::new(0, 0, buf.width, buf.height);
+        let mut canvas = Canvas::new(buf, area);
+        draw(&mut canvas);
+    }
+
+    fn press(code: KeyCode) -> AppEvent {
+        AppEvent::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn highlighted(buf: &Buffer, x: u16) -> bool {
+        let cell = buf.get(x, 0).unwrap();
+        cell.b && cell.u
+    }
+
+    #[test]
+    fn tab_focuses_and_highlights_buttons_in_draw_order() {
+        Focus::clear();
+        let mut buf = Buffer::new(30, 1);
+        // "[ A ]" puts its label at x = 2; "[ B ]" at x = 12.
+        let draw = |canvas: &mut Canvas| {
+            Button::push("A").render(&mut canvas.subcanvas(0, 0, 10, 1));
+            Button::push("B").render(&mut canvas.subcanvas(10, 0, 10, 1));
+        };
+
+        frame(&mut buf, &[], draw);
+        assert!(!highlighted(&buf, 2) && !highlighted(&buf, 12));
+
+        frame(&mut buf, &[press(KeyCode::Tab)], draw);
+        assert!(highlighted(&buf, 2) && !highlighted(&buf, 12));
+
+        frame(&mut buf, &[press(KeyCode::Tab)], draw);
+        assert!(!highlighted(&buf, 2) && highlighted(&buf, 12));
+
+        frame(&mut buf, &[press(KeyCode::BackTab)], draw);
+        assert!(highlighted(&buf, 2) && !highlighted(&buf, 12));
+    }
+
+    #[test]
+    fn enter_and_space_press_only_the_focused_button() {
+        Focus::clear();
+        let a = Rc::new(Cell::new(0));
+        let b = Rc::new(Cell::new(0));
+        let mut buf = Buffer::new(30, 1);
+        let draw = |canvas: &mut Canvas| {
+            counting(Button::push("A"), &a).render(&mut canvas.subcanvas(0, 0, 10, 1));
+            counting(Button::push("B"), &b).render(&mut canvas.subcanvas(10, 0, 10, 1));
+        };
+
+        frame(&mut buf, &[], draw);
+        frame(&mut buf, &[press(KeyCode::Tab), press(KeyCode::Tab)], draw);
+        frame(
+            &mut buf,
+            &[press(KeyCode::Enter), press(KeyCode::Char(' '))],
+            draw,
+        );
+
+        assert_eq!((a.get(), b.get()), (0, 2));
+    }
+
+    #[test]
+    fn clicking_a_button_focuses_it_in_the_same_frame() {
+        Focus::clear();
+        let b = Rc::new(Cell::new(0));
+        let mut buf = Buffer::new(30, 1);
+        let draw = |canvas: &mut Canvas| {
+            Button::push("A").render(&mut canvas.subcanvas(0, 0, 10, 1));
+            counting(Button::push("B"), &b).render(&mut canvas.subcanvas(10, 0, 10, 1));
+        };
+
+        frame(&mut buf, &[], draw);
+        frame(&mut buf, &[left_click(12, 0)], draw);
+
+        assert_eq!(b.get(), 1);
+        assert!(highlighted(&buf, 12));
+    }
+
+    #[test]
+    fn named_button_keeps_focus_when_earlier_buttons_disappear() {
+        Focus::clear();
+        let show_first = Rc::new(Cell::new(true));
+        let mut buf = Buffer::new(30, 1);
+        let draw = |canvas: &mut Canvas| {
+            if show_first.get() {
+                Button::push("X").render(&mut canvas.subcanvas(0, 0, 10, 1));
+            }
+            Button::push("B")
+                .id("b")
+                .render(&mut canvas.subcanvas(10, 0, 10, 1));
+        };
+
+        frame(&mut buf, &[], draw);
+        frame(&mut buf, &[press(KeyCode::Tab), press(KeyCode::Tab)], draw);
+        assert!(highlighted(&buf, 12));
+
+        show_first.set(false);
+        frame(&mut buf, &[], draw);
+        assert!(highlighted(&buf, 12));
+    }
+
+    #[test]
+    fn hidden_buttons_are_not_tab_stops() {
+        Focus::clear();
+        let mut buf = Buffer::new(30, 1);
+        let draw = |canvas: &mut Canvas| {
+            Button::push("Hidden").render(&mut canvas.subcanvas(0, 0, 0, 1));
+            Button::push("B").render(&mut canvas.subcanvas(10, 0, 10, 1));
+        };
+
+        frame(&mut buf, &[], draw);
+        frame(&mut buf, &[press(KeyCode::Tab)], draw);
+
+        assert!(highlighted(&buf, 12));
     }
 }

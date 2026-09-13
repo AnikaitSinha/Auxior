@@ -67,7 +67,7 @@ fn main() -> std::io::Result<()> {
                     .child(Text::new(if paused {
                         "Paused — press p to resume"
                     } else {
-                        "Click a button or press + / - / p, q or Esc to quit"
+                        "Click, Tab + Enter, or + / - / p. q or Esc quits"
                     }))
                     .child(
                         Flex::row()

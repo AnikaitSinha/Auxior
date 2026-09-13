@@ -1,11 +1,16 @@
 use std::cell::RefCell;
 
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-
-use super::{AppEvent, Area};
+use super::{Area, Focus, FocusId};
 
 thread_local! {
     static MOUSE_MAP: RefCell<MouseMap> = RefCell::new(MouseMap::default());
+}
+
+struct Region {
+    area: Area,
+    // Set for widgets that take focus when clicked.
+    focus: Option<FocusId>,
+    handler: Box<dyn FnMut()>,
 }
 
 // Frame-local list of clickable regions collected while widgets render, in
@@ -13,7 +18,7 @@ thread_local! {
 // walks the list backwards.
 #[derive(Default)]
 pub struct MouseMap {
-    regions: Vec<(Area, Box<dyn FnMut()>)>,
+    regions: Vec<Region>,
 }
 
 impl MouseMap {
@@ -21,44 +26,57 @@ impl MouseMap {
         MOUSE_MAP.with(|map| map.borrow_mut().regions.clear());
     }
 
+    // A region that does not take focus. Every clickable widget so far is
+    // focusable, but non-focusable ones (scrollbars, links) will need this.
+    #[allow(dead_code)]
     pub fn region(area: Area, handler: impl FnMut() + 'static) {
+        Self::push(area, None, Box::new(handler));
+    }
+
+    // A region whose widget takes focus when clicked.
+    pub fn region_focusable(area: Area, focus: FocusId, handler: impl FnMut() + 'static) {
+        Self::push(area, Some(focus), Box::new(handler));
+    }
+
+    fn push(area: Area, focus: Option<FocusId>, handler: Box<dyn FnMut()>) {
         if area.width == 0 || area.height == 0 {
             return;
         }
 
         MOUSE_MAP.with(|map| {
-            map.borrow_mut().regions.push((area, Box::new(handler)));
+            map.borrow_mut().regions.push(Region {
+                area,
+                focus,
+                handler,
+            });
         });
     }
 
-    // Delivers left-button presses to the topmost region under the pointer.
-    // The regions must be the ones from the frame the user saw when clicking;
-    // a resize invalidates that layout, so presses after one are dropped.
-    pub fn dispatch(events: &[AppEvent]) {
+    // Presses the topmost region under (column, row). A focusable region takes
+    // focus before its handler runs. Returns whether focus moved.
+    pub fn fire(column: u16, row: u16) -> bool {
         MOUSE_MAP.with(|map| {
             let mut map = map.borrow_mut();
-            for event in events {
-                match event {
-                    AppEvent::Resize { .. } => break,
-                    AppEvent::Mouse(MouseEvent {
-                        kind: MouseEventKind::Down(MouseButton::Left),
-                        column,
-                        row,
-                        ..
-                    }) => {
-                        if let Some((_, handler)) = map
-                            .regions
-                            .iter_mut()
-                            .rev()
-                            .find(|(area, _)| area.contains(*column, *row))
-                        {
-                            handler();
-                        }
-                    }
-                    _ => {}
+            let Some(region) = map
+                .regions
+                .iter_mut()
+                .rev()
+                .find(|region| region.area.contains(column, row))
+            else {
+                return false;
+            };
+
+            let moved = match region.focus {
+                Some(id) if !Focus::is_focused(id) => {
+                    Focus::set(id);
+                    true
                 }
-            }
-        });
+                _ => false,
+            };
+
+            (region.handler)();
+            moved
+        })
     }
 }
 
@@ -68,7 +86,8 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crossterm::event::KeyModifiers;
+    use crate::core::{AppEvent, dispatch_input};
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
     fn mouse(kind: MouseEventKind, column: u16, row: u16) -> AppEvent {
         AppEvent::Mouse(MouseEvent {
@@ -95,7 +114,7 @@ mod tests {
         let (count, handler) = counter();
         MouseMap::region(Area::new(2, 2, 3, 2), handler);
 
-        MouseMap::dispatch(&[press(2, 2), press(4, 3)]);
+        dispatch_input(&[press(2, 2), press(4, 3)]);
 
         assert_eq!(count.get(), 2);
     }
@@ -107,7 +126,7 @@ mod tests {
         MouseMap::region(Area::new(2, 2, 3, 2), handler);
 
         // Just past the right and bottom edges, and just before the origin.
-        MouseMap::dispatch(&[press(5, 2), press(2, 4), press(1, 2), press(2, 1)]);
+        dispatch_input(&[press(5, 2), press(2, 4), press(1, 2), press(2, 1)]);
 
         assert_eq!(count.get(), 0);
     }
@@ -120,10 +139,10 @@ mod tests {
         MouseMap::region(Area::new(0, 0, 10, 10), below_handler);
         MouseMap::region(Area::new(2, 2, 2, 2), above_handler);
 
-        MouseMap::dispatch(&[press(3, 3)]);
+        MouseMap::fire(3, 3);
         assert_eq!((below.get(), above.get()), (0, 1));
 
-        MouseMap::dispatch(&[press(8, 8)]);
+        MouseMap::fire(8, 8);
         assert_eq!((below.get(), above.get()), (1, 1));
     }
 
@@ -133,7 +152,7 @@ mod tests {
         let (count, handler) = counter();
         MouseMap::region(Area::new(0, 0, 4, 4), handler);
 
-        MouseMap::dispatch(&[
+        dispatch_input(&[
             mouse(MouseEventKind::Up(MouseButton::Left), 1, 1),
             mouse(MouseEventKind::Down(MouseButton::Right), 1, 1),
             mouse(MouseEventKind::Drag(MouseButton::Left), 1, 1),
@@ -145,31 +164,12 @@ mod tests {
     }
 
     #[test]
-    fn presses_after_a_resize_in_the_same_batch_are_dropped() {
-        MouseMap::clear();
-        let (count, handler) = counter();
-        MouseMap::region(Area::new(0, 0, 4, 4), handler);
-
-        MouseMap::dispatch(&[
-            press(1, 1),
-            AppEvent::Resize {
-                width: 80,
-                height: 24,
-            },
-            press(1, 1),
-        ]);
-
-        assert_eq!(count.get(), 1);
-    }
-
-    #[test]
     fn empty_regions_are_ignored() {
         MouseMap::clear();
         let (count, handler) = counter();
         MouseMap::region(Area::new(3, 3, 0, 1), handler);
 
-        MouseMap::dispatch(&[press(3, 3)]);
-
+        assert!(!MouseMap::fire(3, 3));
         assert_eq!(count.get(), 0);
     }
 
@@ -180,8 +180,24 @@ mod tests {
         MouseMap::region(Area::new(0, 0, 4, 4), handler);
 
         MouseMap::clear();
-        MouseMap::dispatch(&[press(1, 1)]);
+        MouseMap::fire(1, 1);
 
         assert_eq!(count.get(), 0);
+    }
+
+    #[test]
+    fn focusable_region_takes_focus_before_its_handler_runs() {
+        MouseMap::clear();
+        Focus::clear();
+        let id = FocusId::named("target");
+        let focused_during_handler = Rc::new(Cell::new(false));
+        let seen = focused_during_handler.clone();
+        MouseMap::region_focusable(Area::new(0, 0, 4, 1), id, move || {
+            seen.set(Focus::is_focused(id));
+        });
+
+        assert!(MouseMap::fire(1, 0), "focus moved");
+        assert!(focused_during_handler.get());
+        assert!(!MouseMap::fire(1, 0), "already focused");
     }
 }

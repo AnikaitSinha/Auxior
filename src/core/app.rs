@@ -3,9 +3,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 
-use super::{
-    Buffer, FrameStats, KeyBinding, RenderContext, Terminal, keymap::KeyMap, mouse::MouseMap,
-};
+use super::{Buffer, FrameStats, KeyBinding, RenderContext, Terminal, begin_frame, dispatch_input};
 
 // Target frame rate and runtime options for [`App`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,13 +190,12 @@ impl App {
                 break;
             }
 
-            // Hit-test clicks against the regions of the frame that was on
-            // screen when the user clicked, before rendering replaces them, so
-            // a handler's effect shows up in the frame rendered below.
-            MouseMap::dispatch(&frame_events);
-            KeyMap::dispatch(&frame_events);
-            MouseMap::clear();
-            KeyMap::clear();
+            // Route input against the bindings, regions and focus order of the
+            // frame that was on screen when the user acted, before rendering
+            // replaces them, so a handler's effect shows up in the frame
+            // rendered below.
+            dispatch_input(&frame_events);
+            begin_frame();
 
             // let mut control = ControlFlow::Continue;
 
