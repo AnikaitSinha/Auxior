@@ -3,7 +3,9 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 
-use super::{Buffer, FrameStats, RenderContext, Terminal, keymap::KeyMap, mouse::MouseMap};
+use super::{
+    Buffer, FrameStats, KeyBinding, RenderContext, Terminal, keymap::KeyMap, mouse::MouseMap,
+};
 
 // Target frame rate and runtime options for [`App`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,7 +14,7 @@ pub struct AppConfig {
     // Keys that end the event loop before the frame callback sees them.
     // Empty by default so the application keeps every key; opt in with
     // [`AppConfig::quit_key`] or [`AppConfig::default_quit_keys`].
-    pub quit_keys: Vec<(KeyCode, KeyModifiers)>,
+    pub quit_keys: Vec<KeyBinding>,
     // Whether the terminal reports mouse events. See [`AppConfig::mouse_capture`].
     pub mouse_capture: bool,
 }
@@ -37,28 +39,29 @@ impl AppConfig {
         self
     }
 
-    // Add an unmodified key that ends the event loop.
-    pub fn quit_key(self, code: KeyCode) -> Self {
-        self.quit_key_with(code, KeyModifiers::NONE)
-    }
-
-    // Add a key plus modifiers that ends the event loop.
-    pub fn quit_key_with(mut self, code: KeyCode, modifiers: KeyModifiers) -> Self {
-        let binding = (code, modifiers);
+    // Add a key that ends the event loop, such as `'q'` or `KeyCode::Esc`.
+    pub fn quit_key(mut self, key: impl Into<KeyBinding>) -> Self {
+        let binding = key.into();
         if !self.quit_keys.contains(&binding) {
             self.quit_keys.push(binding);
         }
         self
     }
 
+    // Add a key plus modifiers that ends the event loop.
+    pub fn quit_key_with(self, code: KeyCode, modifiers: KeyModifiers) -> Self {
+        self.quit_key(KeyBinding::with(code, modifiers))
+    }
+
     // Replace the quit bindings with `keys`.
     pub fn quit_keys<I>(mut self, keys: I) -> Self
     where
-        I: IntoIterator<Item = (KeyCode, KeyModifiers)>,
+        I: IntoIterator,
+        I::Item: Into<KeyBinding>,
     {
         self.quit_keys = Vec::new();
-        for (code, modifiers) in keys {
-            self = self.quit_key_with(code, modifiers);
+        for key in keys {
+            self = self.quit_key(key);
         }
         self
     }
@@ -81,16 +84,11 @@ impl AppConfig {
     }
 
     fn is_quit_key(&self, event: &AppEvent) -> bool {
-        let AppEvent::Key(KeyEvent {
-            code, modifiers, ..
-        }) = event
-        else {
+        let AppEvent::Key(key) = event else {
             return false;
         };
 
-        self.quit_keys
-            .iter()
-            .any(|(c, m)| c == code && m == modifiers)
+        self.quit_keys.iter().any(|binding| binding.matches(key))
     }
 }
 
@@ -198,6 +196,7 @@ impl App {
             // screen when the user clicked, before rendering replaces them, so
             // a handler's effect shows up in the frame rendered below.
             MouseMap::dispatch(&frame_events);
+            KeyMap::dispatch(&frame_events);
             MouseMap::clear();
             KeyMap::clear();
 
@@ -249,8 +248,6 @@ impl App {
 
             std::mem::swap(&mut self.current, &mut self.previous);
             self.first_frame = false;
-
-            KeyMap::dispatch(&frame_events);
 
             last_frame = now;
 
@@ -357,12 +354,9 @@ mod tests {
     fn quit_keys_replaces_existing_bindings() {
         let config = AppConfig::new()
             .default_quit_keys()
-            .quit_keys([(KeyCode::Char('x'), KeyModifiers::NONE)]);
+            .quit_keys([KeyCode::Char('x')]);
 
-        assert_eq!(
-            config.quit_keys,
-            vec![(KeyCode::Char('x'), KeyModifiers::NONE)]
-        );
+        assert_eq!(config.quit_keys, vec![KeyBinding::from('x')]);
     }
 
     #[test]
@@ -378,5 +372,32 @@ mod tests {
     fn mouse_capture_is_off_by_default() {
         assert!(!AppConfig::default().mouse_capture);
         assert!(AppConfig::new().mouse_capture(true).mouse_capture);
+    }
+
+    #[test]
+    fn quit_keys_accept_chars_and_named_keys() {
+        let config = AppConfig::new().quit_key('q').quit_key(KeyCode::F(10));
+
+        let f10 = AppEvent::Key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        assert!(config.is_quit_key(&f10));
+        assert!(config.is_quit_key(&AppEvent::Key(KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::NONE
+        ))));
+    }
+
+    #[test]
+    fn releasing_a_quit_key_does_not_quit() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+
+        let config = AppConfig::new().default_quit_keys();
+        let release = AppEvent::Key(KeyEvent::new_with_kind_and_state(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+            KeyEventKind::Release,
+            KeyEventState::NONE,
+        ));
+
+        assert!(!config.is_quit_key(&release));
     }
 }

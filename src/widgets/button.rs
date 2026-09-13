@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use crossterm::style::Color;
 
-use crate::core::{KeyMap, MouseMap};
+use crate::core::{KeyBinding, KeyMap, MouseMap};
 use crate::{Area, Canvas, Cell, LayoutOptions, Widget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -27,7 +27,7 @@ pub struct Button {
     button_type: ButtonType,
     fg: Color,
     layout: LayoutOptions,
-    key: Option<char>,
+    key: Option<KeyBinding>,
     state: bool,
     border_side: Option<BorderSide>,
     border_align: BorderAlign,
@@ -137,8 +137,9 @@ impl Button {
         self
     }
 
-    pub fn key(mut self, key: char) -> Self {
-        self.key = Some(key);
+    // The key that fires this button, such as `'s'` or `KeyCode::Enter`.
+    pub fn key(mut self, key: impl Into<KeyBinding>) -> Self {
+        self.key = Some(key.into());
         self
     }
 
@@ -456,6 +457,23 @@ mod tests {
         MouseMap::dispatch(&[left_click(5, 0)]);
         assert_eq!(count.get(), 0);
         MouseMap::dispatch(&[left_click(3, 0)]);
+        assert_eq!(count.get(), 1);
+    }
+
+    #[test]
+    fn named_keys_fire_the_button() {
+        KeyMap::clear();
+        MouseMap::clear();
+        let count = Rc::new(Cell::new(0));
+        let mut buf = Buffer::new(10, 1);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 10, 1));
+
+        counting(Button::push("Go").key(KeyCode::Enter), &count).render(&mut canvas);
+
+        KeyMap::dispatch(&[AppEvent::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ))]);
         assert_eq!(count.get(), 1);
     }
 }

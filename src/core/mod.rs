@@ -12,6 +12,7 @@ pub use buffer::Buffer;
 pub(crate) use canvas::text_width;
 pub use canvas::{Area, Canvas};
 pub use cell::Cell;
+pub use keymap::KeyBinding;
 pub(crate) use keymap::KeyMap;
 pub(crate) use mouse::MouseMap;
 pub use render::{FrameStats, RenderContext};
