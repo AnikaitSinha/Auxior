@@ -17,5 +17,5 @@ pub use core::{
 };
 pub use widgets::{
     Bar, BorderAlign, BorderSide, Button, Div, DivOptions, Flex, FlexDirection, Grid,
-    LayoutOptions, ScrollGraph, Text, Widget,
+    LayoutOptions, ScrollGraph, ScrollState, ScrollView, Text, Widget,
 };

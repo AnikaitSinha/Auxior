@@ -2,6 +2,9 @@ use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEven
 
 use super::{AppEvent, Focus, KeyBinding, KeyMap, MouseMap};
 
+// Rows one notch of the mouse wheel scrolls, as most terminal apps do.
+const WHEEL_ROWS: i16 = 3;
+
 // Routes one frame's events, in order, to the key bindings, click regions and
 // focus order registered while the previous frame rendered: the frame the user
 // was looking at when they acted.
@@ -20,6 +23,21 @@ pub(crate) fn dispatch_input(events: &[AppEvent]) {
             }) => {
                 if regions_current {
                     MouseMap::fire(*column, *row);
+                }
+            }
+            AppEvent::Mouse(MouseEvent {
+                kind: kind @ (MouseEventKind::ScrollUp | MouseEventKind::ScrollDown),
+                column,
+                row,
+                ..
+            }) => {
+                if regions_current {
+                    let rows = if *kind == MouseEventKind::ScrollDown {
+                        WHEEL_ROWS
+                    } else {
+                        -WHEEL_ROWS
+                    };
+                    MouseMap::fire_scroll(*column, *row, rows);
                 }
             }
             AppEvent::Key(key) => {
@@ -250,5 +268,53 @@ mod tests {
 
         assert_eq!((keys.get(), clicks.get()), (0, 0));
         assert_eq!(Focus::focused(), Some(id));
+    }
+
+    fn wheel(kind: MouseEventKind, column: u16, row: u16) -> AppEvent {
+        AppEvent::Mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
+    #[test]
+    fn wheel_scrolls_the_region_under_the_pointer() {
+        reset();
+        let total = Rc::new(Cell::new(0_i32));
+        let for_handler = total.clone();
+        MouseMap::scroll_region(Area::new(0, 0, 4, 4), move |rows| {
+            for_handler.set(for_handler.get() + i32::from(rows))
+        });
+
+        dispatch_input(&[
+            wheel(MouseEventKind::ScrollDown, 1, 1),
+            wheel(MouseEventKind::ScrollDown, 1, 1),
+            wheel(MouseEventKind::ScrollUp, 1, 1),
+            wheel(MouseEventKind::ScrollDown, 9, 9),
+        ]);
+
+        assert_eq!(total.get(), i32::from(WHEEL_ROWS));
+    }
+
+    #[test]
+    fn wheel_after_a_resize_in_the_same_batch_is_dropped() {
+        reset();
+        let total = Rc::new(Cell::new(0_i32));
+        let for_handler = total.clone();
+        MouseMap::scroll_region(Area::new(0, 0, 4, 4), move |rows| {
+            for_handler.set(for_handler.get() + i32::from(rows))
+        });
+
+        dispatch_input(&[
+            AppEvent::Resize {
+                width: 80,
+                height: 24,
+            },
+            wheel(MouseEventKind::ScrollDown, 1, 1),
+        ]);
+
+        assert_eq!(total.get(), 0);
     }
 }

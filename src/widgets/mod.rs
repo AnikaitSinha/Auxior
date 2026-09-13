@@ -4,6 +4,7 @@ mod div;
 mod flex;
 mod grid;
 mod scroll_graph;
+mod scroll_view;
 mod text;
 mod widget;
 
@@ -13,5 +14,6 @@ pub use div::{Div, DivOptions};
 pub use flex::{Flex, FlexDirection};
 pub use grid::Grid;
 pub use scroll_graph::ScrollGraph;
+pub use scroll_view::{ScrollState, ScrollView};
 pub use text::Text;
 pub use widget::{LayoutOptions, Widget};

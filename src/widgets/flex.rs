@@ -151,6 +151,41 @@ impl Widget for Flex {
         gaps.saturating_add(content)
     }
 
+    fn height_for_width(&self, width: u16) -> u16 {
+        if self.children.is_empty() {
+            return 1;
+        }
+
+        let width = self.layout.width.unwrap_or(width).min(width);
+        let measure = |child: &dyn Widget, available: u16| {
+            let layout = child.layout();
+            layout.height.unwrap_or_else(|| {
+                child.height_for_width(layout.width.unwrap_or(available).min(available))
+            })
+        };
+
+        match self.direction {
+            FlexDirection::Column => {
+                let gaps = self
+                    .gap
+                    .saturating_mul(self.children.len().saturating_sub(1) as u16);
+                self.children.iter().fold(gaps, |total, child| {
+                    total.saturating_add(measure(child.as_ref(), width))
+                })
+            }
+            FlexDirection::Row => {
+                let widths =
+                    compute_main_sizes(&self.children, width, self.gap, MainAxis::Width, 0);
+                self.children
+                    .iter()
+                    .zip(widths)
+                    .map(|(child, child_width)| measure(child.as_ref(), child_width))
+                    .max()
+                    .unwrap_or(1)
+            }
+        }
+    }
+
     fn default_width(&self) -> u16 {
         if self.direction == FlexDirection::Column {
             return self
@@ -188,7 +223,7 @@ impl Widget for Flex {
 }
 
 fn layout_column(children: &[Box<dyn Widget>], area: Area, gap: u16) -> Vec<Area> {
-    let main_sizes = compute_main_sizes(children, area.height, gap, MainAxis::Height);
+    let main_sizes = compute_main_sizes(children, area.height, gap, MainAxis::Height, area.width);
     let mut areas = Vec::with_capacity(children.len());
     let mut main_pos = area.y;
 
@@ -209,7 +244,7 @@ fn layout_column(children: &[Box<dyn Widget>], area: Area, gap: u16) -> Vec<Area
 }
 
 fn layout_row(children: &[Box<dyn Widget>], area: Area, gap: u16) -> Vec<Area> {
-    let main_sizes = compute_main_sizes(children, area.width, gap, MainAxis::Width);
+    let main_sizes = compute_main_sizes(children, area.width, gap, MainAxis::Width, area.height);
     let mut areas = Vec::with_capacity(children.len());
     let mut main_pos = area.x;
 
@@ -244,6 +279,8 @@ fn compute_main_sizes(
     main_limit: u16,
     gap: u16,
     axis: MainAxis,
+    // Space across the main axis, which a column's children wrap within.
+    cross: u16,
 ) -> Vec<u16> {
     let count = children.len();
     if count == 0 {
@@ -275,7 +312,7 @@ fn compute_main_sizes(
         }
 
         let intrinsic = match axis {
-            MainAxis::Height => child.default_height(),
+            MainAxis::Height => child.height_for_width(layout.width.unwrap_or(cross).min(cross)),
             MainAxis::Width => child.default_width(),
         };
         main_sizes[i] = intrinsic.min(main_available);
@@ -399,5 +436,38 @@ mod tests {
         assert_eq!(buf.get(0, 0).unwrap().ch, 'T');
         assert_eq!(buf.get(0, 2).unwrap().ch, '╭');
         assert_eq!(buf.get(6, 2).unwrap().ch, '╭');
+    }
+
+    #[test]
+    fn column_gives_wrapped_text_its_rows() {
+        let mut buf = crate::Buffer::new(5, 6);
+        let mut canvas = crate::Canvas::new(&mut buf, crate::Area::new(0, 0, 5, 6));
+
+        Flex::column()
+            .child(crate::Text::new("aaa bbb ccc").wrap(true))
+            .child(crate::Text::new("z"))
+            .render(&mut canvas);
+
+        assert_eq!(buf.get(0, 2).unwrap().ch, 'c');
+        assert_eq!(buf.get(0, 3).unwrap().ch, 'z');
+    }
+
+    #[test]
+    fn height_for_width_measures_wrapped_children() {
+        use crate::{Text, Widget};
+
+        let column = Flex::column()
+            .gap(1)
+            .child(Text::new("aaa bbb").wrap(true))
+            .child(Text::new("z"));
+        assert_eq!(column.height_for_width(3), 2 + 1 + 1);
+        assert_eq!(column.height_for_width(7), 1 + 1 + 1);
+
+        let row = Flex::row()
+            .child(Text::new("aaa bbb").wrap(true).width(3))
+            .child(Text::new("z"));
+        assert_eq!(row.height_for_width(10), 2);
+
+        assert_eq!(Flex::column().height_for_width(10), 1);
     }
 }

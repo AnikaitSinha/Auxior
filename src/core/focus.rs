@@ -14,6 +14,7 @@ pub struct FocusId(Kind);
 enum Kind {
     Auto(u32),
     Named(u64),
+    Handle(usize),
 }
 
 impl FocusId {
@@ -21,6 +22,12 @@ impl FocusId {
         let mut hasher = DefaultHasher::new();
         name.hash(&mut hasher);
         Self(Kind::Named(hasher.finish()))
+    }
+
+    // Identifies a widget by the address of shared state it is built from, such
+    // as a scroll view's `ScrollState`. Stable for as long as that state lives.
+    pub(crate) fn from_handle(address: usize) -> Self {
+        Self(Kind::Handle(address))
     }
 }
 
@@ -210,6 +217,13 @@ mod tests {
         Focus::traverse(true);
         Focus::traverse(true);
         assert_eq!(Focus::focused(), Some(name));
+    }
+
+    #[test]
+    fn handle_ids_are_distinct_from_other_ids() {
+        assert_eq!(FocusId::from_handle(64), FocusId::from_handle(64));
+        assert_ne!(FocusId::from_handle(64), FocusId::from_handle(72));
+        assert_ne!(FocusId::from_handle(0), FocusId(Kind::Auto(0)));
     }
 
     #[test]

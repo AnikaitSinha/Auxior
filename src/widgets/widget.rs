@@ -43,6 +43,13 @@ pub trait Widget {
     fn default_width(&self) -> u16 {
         1
     }
+
+    // Rows needed when drawn `width` columns wide. Widgets whose height depends
+    // on their width, such as wrapping text, override this; containers call it
+    // once they know the width they will give a child.
+    fn height_for_width(&self, _width: u16) -> u16 {
+        self.default_height()
+    }
     fn is_dirty(&self) -> bool {
         true
     }

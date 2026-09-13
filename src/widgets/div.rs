@@ -173,6 +173,53 @@ impl Widget for Div {
         if self.options.border { 3 } else { 1 }
     }
 
+    fn height_for_width(&self, width: u16) -> u16 {
+        let options = &self.options;
+        let width = options.layout.width.unwrap_or(width).min(width);
+        let frame = if options.border { 2 } else { 0 };
+        let padding = options.padding.saturating_mul(2);
+        let inner = width.saturating_sub(frame).saturating_sub(padding);
+
+        // Mirrors `resolve_child_area`: flow children stack with a blank row
+        // between them; positioned children only need to fit.
+        let mut flow: Option<u16> = None;
+        let mut placed = 0_u16;
+        for child in &self.children {
+            let layout = child.layout();
+            let child_width = layout.width.unwrap_or(inner).min(inner);
+            let height = layout
+                .height
+                .unwrap_or_else(|| child.height_for_width(child_width));
+            match layout.y {
+                Some(y) => placed = placed.max(y.saturating_add(height)),
+                None => {
+                    flow = Some(match flow {
+                        Some(total) => total.saturating_add(1).saturating_add(height),
+                        None => height,
+                    })
+                }
+            }
+        }
+
+        // Mirrors `content_area`: a title outside a border takes its own rows.
+        let title_rows = match &options.title {
+            Some(title) if !options.border => {
+                let layout = title.layout();
+                layout
+                    .y
+                    .unwrap_or(0)
+                    .saturating_add(layout.height.unwrap_or_else(|| title.default_height()))
+            }
+            _ => 0,
+        };
+
+        let content = flow.unwrap_or(0).max(placed);
+        (frame + padding)
+            .saturating_add(title_rows)
+            .saturating_add(content)
+            .max(self.default_height())
+    }
+
     fn render_with_context(&self, canvas: &mut Canvas, ctx: &mut RenderContext) {
         let layout = self.layout();
         let width = layout
@@ -255,7 +302,7 @@ fn resolve_child_area(child: &dyn Widget, parent: Area, flow_y: &mut u16) -> Are
 
     let height = layout
         .height
-        .unwrap_or_else(|| child.default_height())
+        .unwrap_or_else(|| child.height_for_width(width))
         .min(parent.height);
 
     let x = parent.x.saturating_add(layout.x.unwrap_or(0));
@@ -966,5 +1013,36 @@ mod tests {
             let cell = buf.get(0, row).unwrap();
             assert!(cell.b && cell.u, "row {row} not highlighted");
         }
+    }
+
+    #[test]
+    fn flow_children_get_their_wrapped_height() {
+        let mut buf = Buffer::new(4, 5);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 4, 5));
+        let div = Div::new()
+            .child(Text::new("aaa bbb").wrap(true))
+            .child(Text::new("c"));
+
+        div.render(&mut canvas);
+
+        // "aaa" / "bbb", a blank flow gap, then "c".
+        assert_eq!(buf.get(0, 1).unwrap().ch, 'b');
+        assert_eq!(buf.get(0, 3).unwrap().ch, 'c');
+        assert_eq!(div.height_for_width(4), 4);
+    }
+
+    #[test]
+    fn height_for_width_counts_border_padding_and_title() {
+        let bordered = Div::new()
+            .border(true)
+            .padding(1)
+            .child(Text::new("aaa bbb").wrap(true));
+        // Inner width 7 - 2 - 2 = 3, so the text takes two rows.
+        assert_eq!(bordered.height_for_width(7), 2 + 2 + 2);
+
+        let titled = Div::new().title(Text::new("T")).child(Text::new("x"));
+        assert_eq!(titled.height_for_width(10), 2);
+
+        assert_eq!(Div::new().border(true).height_for_width(10), 3);
     }
 }
