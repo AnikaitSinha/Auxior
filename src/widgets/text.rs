@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use unicode_width::UnicodeWidthChar;
 
 use crate::core::text_width;
@@ -142,12 +144,13 @@ impl Widget for Text {
     }
 }
 
-// Splits one line into rows at most `width` columns wide, breaking between
+// Splits one line into rows, as byte ranges of `line`, at most `width` columns
+// wide, breaking between
 // words. A word wider than a whole row is split between characters. Spaces at
 // a break are dropped; indentation at the start of the line is kept.
-pub(crate) fn wrap_line(line: &str, width: u16) -> Vec<&str> {
+pub(crate) fn wrap_ranges(line: &str, width: u16) -> Vec<Range<usize>> {
     if width == 0 {
-        return vec![line];
+        return std::iter::once(0..line.len()).collect();
     }
     let limit = width as usize;
 
@@ -166,7 +169,7 @@ pub(crate) fn wrap_line(line: &str, width: u16) -> Vec<&str> {
                 row_width += gap + word;
                 continue;
             }
-            rows.push(&line[start..end]);
+            rows.push(start..end);
         }
 
         // Only the line's first row keeps the space before its first word.
@@ -180,7 +183,7 @@ pub(crate) fn wrap_line(line: &str, width: u16) -> Vec<&str> {
             let w = ch.width().unwrap_or(0);
             // A glyph wider than a whole row still gets a row of its own.
             if piece_width + w > limit && piece_width > 0 {
-                rows.push(&line[piece_start..start + offset]);
+                rows.push(piece_start..start + offset);
                 piece_start = start + offset;
                 piece_width = 0;
             }
@@ -191,11 +194,19 @@ pub(crate) fn wrap_line(line: &str, width: u16) -> Vec<&str> {
     }
 
     match row {
-        Some((start, end)) => rows.push(&line[start..end]),
+        Some((start, end)) => rows.push(start..end),
         // Blank or all-space line: still one row.
-        None => rows.push(""),
+        None => rows.push(0..0),
     }
     rows
+}
+
+// `wrap_ranges` as slices of `line`.
+pub(crate) fn wrap_line(line: &str, width: u16) -> Vec<&str> {
+    wrap_ranges(line, width)
+        .into_iter()
+        .map(|range| &line[range])
+        .collect()
 }
 
 // Each word as (start of the whitespace before it, word start, word end).

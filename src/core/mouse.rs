@@ -43,9 +43,7 @@ impl MouseMap {
         });
     }
 
-    // A region that does not take focus. Every clickable widget so far is
-    // focusable, but non-focusable ones (scrollbars, links) will need this.
-    #[allow(dead_code)]
+    // A region that does not take focus, such as a link in a document.
     pub fn region(area: Area, handler: impl FnMut() + 'static) {
         Self::push(area, None, Box::new(handler));
     }
