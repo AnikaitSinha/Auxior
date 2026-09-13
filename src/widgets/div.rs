@@ -470,7 +470,7 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
                 .set(0, 0, Cell::with_fg(*ch, button.fg_color()));
             occupied[y_pos as usize] = true;
         }
-        button.register_key();
+        button.register_input(canvas.subcanvas(x, y, 1, height).global_area());
         y = y.saturating_add(height).saturating_add(1);
     }
 
@@ -500,7 +500,7 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
                 .set(0, 0, Cell::with_fg(*ch, button.fg_color()));
             occupied[y_pos as usize] = true;
         }
-        button.register_key();
+        button.register_input(canvas.subcanvas(x, y, 1, seg_len).global_area());
         end_y = y.saturating_sub(2);
     }
 
@@ -886,5 +886,43 @@ mod tests {
         // Same display width, so everything outside the title must match.
         assert_eq!(wide[..2], ascii[..2]);
         assert_eq!(wide[6..], ascii[6..]);
+    }
+
+    #[test]
+    fn vertical_border_button_is_clickable_along_its_segment() {
+        use crate::core::{AppEvent, MouseMap};
+        use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+
+        let click = |column, row| {
+            AppEvent::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+
+        MouseMap::clear();
+        let count = std::rc::Rc::new(std::cell::Cell::new(0));
+        let count_for_handler = count.clone();
+
+        let mut buf = crate::Buffer::new(10, 8);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 10, 8));
+        Div::new()
+            .border(true)
+            .border_button(
+                Button::border_button("ab")
+                    .side(BorderSide::Left)
+                    .on_press(move || count_for_handler.set(count_for_handler.get() + 1)),
+            )
+            .render(&mut canvas);
+
+        // "╰ab╭" runs down the left border on rows 1..=4.
+        MouseMap::dispatch(&[click(0, 1), click(0, 4)]);
+        assert_eq!(count.get(), 2);
+
+        // Below the segment, and one column into the interior.
+        MouseMap::dispatch(&[click(0, 5), click(1, 2)]);
+        assert_eq!(count.get(), 2);
     }
 }

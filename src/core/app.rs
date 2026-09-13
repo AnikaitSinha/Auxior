@@ -1,9 +1,9 @@
 use std::io;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 
-use super::{Buffer, FrameStats, RenderContext, Terminal, keymap::KeyMap};
+use super::{Buffer, FrameStats, RenderContext, Terminal, keymap::KeyMap, mouse::MouseMap};
 
 // Target frame rate and runtime options for [`App`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,6 +13,8 @@ pub struct AppConfig {
     // Empty by default so the application keeps every key; opt in with
     // [`AppConfig::quit_key`] or [`AppConfig::default_quit_keys`].
     pub quit_keys: Vec<(KeyCode, KeyModifiers)>,
+    // Whether the terminal reports mouse events. See [`AppConfig::mouse_capture`].
+    pub mouse_capture: bool,
 }
 
 impl Default for AppConfig {
@@ -20,6 +22,7 @@ impl Default for AppConfig {
         Self {
             target_fps: 60,
             quit_keys: Vec::new(),
+            mouse_capture: false,
         }
     }
 }
@@ -60,6 +63,14 @@ impl AppConfig {
         self
     }
 
+    // Report mouse events as [`AppEvent::Mouse`] and make widgets such as
+    // [`Button`](crate::Button) clickable. Off by default because while the
+    // terminal captures the mouse, users cannot select text with it.
+    pub fn mouse_capture(mut self, on: bool) -> Self {
+        self.mouse_capture = on;
+        self
+    }
+
     // Convenience for the common `q` / `Esc` pair.
     pub fn default_quit_keys(self) -> Self {
         self.quit_key(KeyCode::Char('q')).quit_key(KeyCode::Esc)
@@ -89,6 +100,8 @@ pub enum AppEvent {
     // Frame tick without input (used for animations / idle redraw).
     Tick,
     Key(KeyEvent),
+    // Only delivered when [`AppConfig::mouse_capture`] is enabled.
+    Mouse(MouseEvent),
     Resize { width: u16, height: u16 },
 }
 
@@ -115,7 +128,10 @@ impl App {
     }
 
     pub fn with_config(config: AppConfig) -> io::Result<Self> {
-        let terminal = Terminal::new()?;
+        let mut terminal = Terminal::new()?;
+        if config.mouse_capture {
+            terminal.enable_mouse_capture()?;
+        }
         let (w, h) = terminal.size();
         let previous = Buffer::new(w, h);
         let current = Buffer::new(w, h);
@@ -178,6 +194,11 @@ impl App {
                 break;
             }
 
+            // Hit-test clicks against the regions of the frame that was on
+            // screen when the user clicked, before rendering replaces them, so
+            // a handler's effect shows up in the frame rendered below.
+            MouseMap::dispatch(&frame_events);
+            MouseMap::clear();
             KeyMap::clear();
 
             // let mut control = ControlFlow::Continue;
@@ -254,6 +275,7 @@ impl App {
         loop {
             match event::read()? {
                 Event::Key(key) => pending.push(AppEvent::Key(key)),
+                Event::Mouse(mouse) => pending.push(AppEvent::Mouse(mouse)),
                 Event::Resize(width, height) => {
                     terminal.set_size(width, height);
                     pending.push(AppEvent::Resize { width, height });
@@ -350,5 +372,11 @@ mod tests {
             .quit_key(KeyCode::Esc);
 
         assert_eq!(config.quit_keys.len(), 1);
+    }
+
+    #[test]
+    fn mouse_capture_is_off_by_default() {
+        assert!(!AppConfig::default().mouse_capture);
+        assert!(AppConfig::new().mouse_capture(true).mouse_capture);
     }
 }

@@ -9,9 +9,10 @@ mod terminal;
 
 pub use app::{App, AppConfig, AppEvent, ControlFlow};
 pub use buffer::Buffer;
-pub use canvas::{Area, Canvas};
 pub(crate) use canvas::text_width;
+pub use canvas::{Area, Canvas};
 pub use cell::Cell;
 pub(crate) use keymap::KeyMap;
+pub(crate) use mouse::MouseMap;
 pub use render::{FrameStats, RenderContext};
 pub use terminal::Terminal;

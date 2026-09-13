@@ -36,7 +36,12 @@ fn toggle_pause(state: &CounterState) {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::with_config(AppConfig::new().target_fps(60).default_quit_keys())?;
+    let mut app = App::with_config(
+        AppConfig::new()
+            .target_fps(60)
+            .default_quit_keys()
+            .mouse_capture(true),
+    )?;
     let state = CounterState::new();
 
     app.run(move |buf, _previous, _events, ctx, _stats| {
@@ -62,7 +67,7 @@ fn main() -> std::io::Result<()> {
                     .child(Text::new(if paused {
                         "Paused — press p to resume"
                     } else {
-                        "+ / - to change count, p to pause, q or Esc to quit"
+                        "Click a button or press + / - / p, q or Esc to quit"
                     }))
                     .child(
                         Flex::row()

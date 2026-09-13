@@ -32,6 +32,11 @@ impl Area {
         }
     }
 
+    // Whether the cell at (x, y) lies inside this area.
+    pub fn contains(&self, x: u16, y: u16) -> bool {
+        x >= self.x && y >= self.y && x - self.x < self.width && y - self.y < self.height
+    }
+
     pub fn new_from_buffer(buffer: &Buffer) -> Self {
         Self {
             x: 0,
@@ -257,5 +262,23 @@ mod tests {
         assert_eq!(text_width("日本語"), 6);
         assert_eq!(text_width("e\u{0301}"), 1);
         assert_eq!(text_width(""), 0);
+    }
+
+    #[test]
+    fn area_contains_is_edge_exclusive() {
+        let area = Area::new(2, 3, 4, 2);
+        assert!(area.contains(2, 3));
+        assert!(area.contains(5, 4));
+        assert!(!area.contains(6, 3));
+        assert!(!area.contains(2, 5));
+        assert!(!area.contains(1, 3));
+        assert!(!Area::new(0, 0, 0, 0).contains(0, 0));
+    }
+
+    #[test]
+    fn area_contains_does_not_overflow_near_the_limit() {
+        let area = Area::new(u16::MAX - 1, 0, 5, 1);
+        assert!(area.contains(u16::MAX, 0));
+        assert!(!area.contains(0, 0));
     }
 }

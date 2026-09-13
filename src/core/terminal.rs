@@ -1,9 +1,11 @@
 use std::io::{self, BufWriter, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, Once, TryLockError};
 use std::thread::{self, ThreadId};
 
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute, queue,
     style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{
@@ -141,6 +143,8 @@ impl FlushState {
 // thread does not tear down a UI that is still running.
 static SESSION_OWNER: Mutex<Option<ThreadId>> = Mutex::new(None);
 static PANIC_HOOK: Once = Once::new();
+// Whether mouse capture needs turning off when the terminal is restored.
+static MOUSE_CAPTURED: AtomicBool = AtomicBool::new(false);
 
 fn lock_session_owner() -> MutexGuard<'static, Option<ThreadId>> {
     SESSION_OWNER
@@ -187,6 +191,9 @@ fn restore_terminal() -> io::Result<()> {
     }
 
     let mut stdout = io::stdout();
+    if MOUSE_CAPTURED.swap(false, Ordering::SeqCst) {
+        let _ = execute!(stdout, DisableMouseCapture);
+    }
     // Attempt both steps even if the first fails.
     let screen = execute!(stdout, Show, LeaveAlternateScreen);
     let raw = disable_raw_mode();
@@ -239,6 +246,14 @@ impl Terminal {
 
     pub fn size(&self) -> (u16, u16) {
         (self.width, self.height)
+    }
+
+    // Ask the terminal to report mouse events. Turned off again automatically
+    // when the terminal is restored, including after a panic.
+    pub fn enable_mouse_capture(&mut self) -> io::Result<()> {
+        // Flag first, so a partially written enable is still undone.
+        MOUSE_CAPTURED.store(true, Ordering::SeqCst);
+        execute!(io::stdout(), EnableMouseCapture)
     }
 
     pub(crate) fn set_size(&mut self, width: u16, height: u16) {

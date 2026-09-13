@@ -1,9 +1,10 @@
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use crossterm::style::Color;
 
-use crate::core::KeyMap;
-use crate::{Canvas, Cell, LayoutOptions, Widget};
+use crate::core::{KeyMap, MouseMap};
+use crate::{Area, Canvas, Cell, LayoutOptions, Widget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BorderSide {
@@ -167,16 +168,20 @@ impl Button {
         <Self as Widget>::render(self, canvas);
     }
 
-    pub(crate) fn register_key(&self) {
-        let Some(key) = self.key else {
-            return;
-        };
-
+    // Hands the press handler to this frame's key and mouse maps, so either
+    // the bound key or a click inside `area` fires it.
+    pub(crate) fn register_input(&self, area: Area) {
         let Some(handler) = self.on_action.borrow_mut().take() else {
             return;
         };
+        let handler = Rc::new(RefCell::new(handler));
 
-        KeyMap::bind(key, handler);
+        if let Some(key) = self.key {
+            let handler = Rc::clone(&handler);
+            KeyMap::bind(key, move || (*handler.borrow_mut())());
+        }
+
+        MouseMap::region(area, move || (*handler.borrow_mut())());
     }
 
     pub(crate) fn display_text(&self) -> String {
@@ -214,15 +219,12 @@ impl std::fmt::Debug for Button {
 
 impl Widget for Button {
     fn render(&self, canvas: &mut Canvas) {
-        self.register_key();
+        let used = canvas.set_str(0, 0, &self.display_text(), Cell::with_fg(' ', self.fg));
 
-        let width = canvas.width();
-        let height = canvas.height();
-        if width == 0 || height == 0 {
-            return;
-        }
-
-        canvas.set_str(0, 0, &self.display_text(), Cell::with_fg(' ', self.fg));
+        // Only the drawn label is clickable, not any extra space the layout
+        // gave the button.
+        let origin = canvas.global_area();
+        self.register_input(Area::new(origin.x, origin.y, used, 1));
     }
 
     fn layout(&self) -> &LayoutOptions {
@@ -244,7 +246,7 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::core::{AppEvent, KeyMap};
+    use crate::core::{AppEvent, KeyMap, MouseMap};
     use crate::{Area, Buffer, Canvas};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use crossterm::style::Color;
@@ -378,5 +380,82 @@ mod tests {
         KeyMap::dispatch(&events);
 
         assert_eq!(count.get(), 0);
+    }
+
+    fn left_click(column: u16, row: u16) -> AppEvent {
+        AppEvent::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
+    fn counting(button: Button, count: &Rc<Cell<u32>>) -> Button {
+        let count = count.clone();
+        button.on_press(move || count.set(count.get() + 1))
+    }
+
+    #[test]
+    fn click_on_label_fires_on_press_without_a_key() {
+        MouseMap::clear();
+        let count = Rc::new(Cell::new(0));
+        let mut buf = Buffer::new(20, 3);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 20, 3));
+
+        // "[ Save ]" is 8 columns, drawn at x = 4..=11 on row 1.
+        counting(Button::push("Save"), &count).render(&mut canvas.subcanvas(4, 1, 16, 1));
+
+        MouseMap::dispatch(&[left_click(4, 1)]);
+        MouseMap::dispatch(&[left_click(11, 1)]);
+        assert_eq!(count.get(), 2);
+    }
+
+    #[test]
+    fn click_beside_label_does_nothing() {
+        MouseMap::clear();
+        let count = Rc::new(Cell::new(0));
+        let mut buf = Buffer::new(20, 3);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 20, 3));
+
+        counting(Button::push("Save"), &count).render(&mut canvas.subcanvas(4, 1, 16, 1));
+
+        // Past the label but inside the space the layout allotted; and above it.
+        MouseMap::dispatch(&[left_click(12, 1), left_click(4, 0), left_click(3, 1)]);
+        assert_eq!(count.get(), 0);
+    }
+
+    #[test]
+    fn key_and_click_share_one_handler() {
+        KeyMap::clear();
+        MouseMap::clear();
+        let count = Rc::new(Cell::new(0));
+        let mut buf = Buffer::new(10, 1);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 10, 1));
+
+        counting(Button::push("S").key('s'), &count).render(&mut canvas);
+
+        KeyMap::dispatch(&[AppEvent::Key(KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::NONE,
+        ))]);
+        MouseMap::dispatch(&[left_click(0, 0)]);
+        assert_eq!(count.get(), 2);
+    }
+
+    #[test]
+    fn clipped_button_is_only_clickable_where_visible() {
+        MouseMap::clear();
+        let count = Rc::new(Cell::new(0));
+        let mut buf = Buffer::new(10, 1);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 10, 1));
+
+        // Only "[ Sa" fits in 4 columns.
+        counting(Button::push("Save"), &count).render(&mut canvas.subcanvas(0, 0, 4, 1));
+
+        MouseMap::dispatch(&[left_click(5, 0)]);
+        assert_eq!(count.get(), 0);
+        MouseMap::dispatch(&[left_click(3, 0)]);
+        assert_eq!(count.get(), 1);
     }
 }
