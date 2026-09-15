@@ -65,19 +65,24 @@ impl<'a> RenderContext<'a> {
             return 0;
         }
 
-        let mut coords = Vec::new();
+        // Mark covered cells instead of collecting and sorting coordinates.
+        let width = buffer.width as usize;
+        let mut covered = vec![false; width * buffer.height as usize];
+        let mut count = 0;
         for area in &self.dirty_regions {
             let x_end = area.x.saturating_add(area.width).min(buffer.width);
             let y_end = area.y.saturating_add(area.height).min(buffer.height);
             for y in area.y..y_end {
                 for x in area.x..x_end {
-                    coords.push((x, y));
+                    let seen = &mut covered[y as usize * width + x as usize];
+                    if !*seen {
+                        *seen = true;
+                        count += 1;
+                    }
                 }
             }
         }
-        coords.sort_unstable();
-        coords.dedup();
-        coords.len()
+        count
     }
 }
 

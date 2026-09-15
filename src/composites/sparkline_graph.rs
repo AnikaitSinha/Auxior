@@ -343,9 +343,7 @@ mod tests {
 
     #[test]
     fn values_render_sparkline_in_bar_region() {
-        let graph = SparklineGraph::new()
-            .values([1.0, 1.0])
-            .window(2);
+        let graph = SparklineGraph::new().values([1.0, 1.0]).window(2);
 
         let buf = render_sparkline(&graph, 24);
         // bar starts after label (4) + gap (1) → x = 5

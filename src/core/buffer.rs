@@ -174,7 +174,7 @@ mod tests {
         let mut buf = Buffer::new(2, 2);
         let cell = Cell::with_fg('x', Color::Red);
 
-        buf.set(0, 0, cell.clone());
+        buf.set(0, 0, cell);
         let got = buf.get(0, 0).unwrap();
 
         assert_eq!(got.ch, cell.ch);
@@ -193,7 +193,7 @@ mod tests {
     fn fill_overwrites_all_cells() {
         let mut buf = Buffer::new(2, 2);
         let fill_cell = Cell::new('x');
-        buf.fill(fill_cell.clone());
+        buf.fill(fill_cell);
 
         for x in 0..2 {
             for y in 0..2 {
@@ -235,9 +235,7 @@ mod tests {
                 height: 2,
             },
         );
-        let mut new_vec = Vec::new();
-        new_vec.push((1_u16, 1_u16));
-        assert_eq!(res, new_vec);
+        assert_eq!(res, vec![(1_u16, 1_u16)]);
     }
 
     #[test]
@@ -253,13 +251,14 @@ mod tests {
                 height: 3,
             },
         );
-        let mut new_vec = Vec::new();
-        new_vec.push((0_u16, 0_u16));
-        new_vec.push((1_u16, 0_u16));
-        new_vec.push((0_u16, 1_u16));
-        new_vec.push((1_u16, 1_u16));
-        new_vec.push((0_u16, 2_u16));
-        new_vec.push((1_u16, 2_u16));
+        let new_vec = vec![
+            (0_u16, 0_u16),
+            (1_u16, 0_u16),
+            (0_u16, 1_u16),
+            (1_u16, 1_u16),
+            (0_u16, 2_u16),
+            (1_u16, 2_u16),
+        ];
         assert_eq!(res, new_vec);
     }
 
@@ -281,10 +280,7 @@ mod tests {
         let coords = buf.all_coords();
 
         assert_eq!(coords.len(), 6);
-        assert_eq!(
-            coords,
-            vec![(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]
-        );
+        assert_eq!(coords, vec![(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)]);
     }
 
     #[test]

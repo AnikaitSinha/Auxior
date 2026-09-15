@@ -129,6 +129,20 @@ impl MouseMap {
         })
     }
 
+    // The newest area registered since `mark` by focusable widget `id`, in the
+    // coordinates it was registered with.
+    pub fn focused_area_since(mark: RegionMark, id: FocusId) -> Option<Area> {
+        MOUSE_MAP.with(|map| {
+            let map = map.borrow();
+            map.regions
+                .get(mark.regions..)?
+                .iter()
+                .rev()
+                .find(|region| region.focus == Some(id))
+                .map(|region| region.area)
+        })
+    }
+
     pub fn mark() -> RegionMark {
         MOUSE_MAP.with(|map| {
             let map = map.borrow();
@@ -361,5 +375,22 @@ mod tests {
         assert_eq!(moved.get(), 1);
         assert_eq!(dropped.get(), 0);
         assert_eq!(scrolled.get(), 2);
+    }
+
+    #[test]
+    fn focused_area_since_finds_only_newer_regions_of_that_widget() {
+        MouseMap::clear();
+        let id = FocusId::named("target");
+        MouseMap::region_focusable(Area::new(0, 0, 1, 1), id, || {});
+
+        let mark = MouseMap::mark();
+        assert_eq!(MouseMap::focused_area_since(mark, id), None);
+
+        MouseMap::region_focusable(Area::new(5, 6, 2, 1), FocusId::named("other"), || {});
+        MouseMap::region_focusable(Area::new(3, 4, 2, 1), id, || {});
+        assert_eq!(
+            MouseMap::focused_area_since(mark, id),
+            Some(Area::new(3, 4, 2, 1))
+        );
     }
 }

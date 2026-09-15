@@ -124,15 +124,13 @@ impl Widget for Bar {
         let filled = ((self.fill.clamp(0.0, 1.0) * width as f32).round() as u16).min(width);
         let denom = (width.saturating_sub(1)).max(1) as f32;
 
-        for i in 0..width {
-            let x = i as u16;
+        for x in 0..width {
             let cell = if x < filled {
-                let fac = if width == 1 { 0.0 } else { i as f32 / denom };
+                let fac = if width == 1 { 0.0 } else { x as f32 / denom };
                 let color = interpolate_color(self.start_color, self.end_color, fac);
                 Cell::with_fg('■', color)
             } else {
-                let cell = Cell::with_fg('■', self.bg);
-                cell
+                Cell::with_fg('■', self.bg)
             };
             canvas.set(x, 0, cell);
         }

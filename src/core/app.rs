@@ -232,16 +232,18 @@ impl App {
                 ctx.diff_coords(&self.current)
             };
 
+            self.terminal.flush_cells(&self.current, &coords)?;
+
+            // Built after flushing, so the coordinates move in instead of being
+            // copied every frame.
             self.frame_stats = FrameStats {
                 flushed_cells: coords.len(),
                 checked_cells: ctx.checked_cells(&self.current),
                 dirty_regions: ctx.dirty_regions.len(),
                 total_cells: self.current.width as u64 * self.current.height as u64,
                 force_full: ctx.force_full,
-                flushed_coords: coords.clone(),
+                flushed_coords: coords,
             };
-
-            self.terminal.flush_cells(&self.current, &coords)?;
 
             std::mem::swap(&mut self.current, &mut self.previous);
             self.first_frame = false;

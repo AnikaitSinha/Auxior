@@ -7,6 +7,12 @@ pub struct List {
     min_len: u16,
 }
 
+impl Default for List {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl List {
     pub fn new() -> Self {
         List {
@@ -129,9 +135,7 @@ mod tests {
 
     #[test]
     fn too_narrow_canvas_does_not_render() {
-        let list = List::new()
-            .min_len(8)
-            .add_element(Text::new("Hello"));
+        let list = List::new().min_len(8).add_element(Text::new("Hello"));
 
         let buf = render_list(&list, 6, 4);
         assert_eq!(buf.get(0, 0).unwrap().ch, ' ');
@@ -139,9 +143,7 @@ mod tests {
 
     #[test]
     fn too_short_canvas_does_not_render() {
-        let list = List::new()
-            .min_height(4)
-            .add_element(Text::new("Hello"));
+        let list = List::new().min_height(4).add_element(Text::new("Hello"));
 
         let buf = render_list(&list, 10, 2);
         assert_eq!(buf.get(0, 0).unwrap().ch, ' ');

@@ -23,6 +23,8 @@ struct ScrollInner {
     // As of the last render.
     max: StdCell<u16>,
     page: StdCell<u16>,
+    // Focus as of the last render, to notice when it moves.
+    last_focus: StdCell<Option<FocusId>>,
 }
 
 impl ScrollState {
@@ -199,8 +201,9 @@ impl Widget for ScrollView {
 
         let (content_width, content_height) = self.measure(width, height);
         let max = content_height.saturating_sub(height);
-        let offset = self.state.offset().min(max);
-        self.state.record(offset, max, height);
+        let mut offset = self.state.offset().min(max);
+        let focused_now = Focus::focused();
+        let focus_moved = self.state.inner.last_focus.replace(focused_now) != focused_now;
 
         // Registered before the content, so widgets inside sit on top: a click
         // on a button presses it, a click anywhere else focuses the view.
@@ -212,13 +215,30 @@ impl Widget for ScrollView {
 
         // Draw the content off screen at its full height, so its layout never
         // depends on the scroll position, then copy in the visible rows. Rows
-        // below the viewport are never shown, so the buffer stops there.
-        let mut offscreen = Buffer::new(content_width, offset.saturating_add(height));
+        // below the viewport are never shown, so the buffer usually stops
+        // there; but when focus has just moved, the newly focused widget could
+        // be anywhere in the content, so every row is kept.
+        let rows = if focus_moved {
+            content_height.max(height)
+        } else {
+            offset.saturating_add(height)
+        };
+        let mut offscreen = Buffer::new(content_width, rows);
         let mark = MouseMap::mark();
         if let Some(child) = &self.child {
             let area = Area::new(0, 0, content_width, content_height);
             child.render(&mut Canvas::new(&mut offscreen, area));
         }
+
+        // Focus just moved to a widget in here, by Tab for instance: bring it
+        // into view.
+        if let Some(target) = focused_now
+            .filter(|_| focus_moved)
+            .and_then(|id| MouseMap::focused_area_since(mark, id))
+        {
+            offset = reveal(offset, target, height).min(max);
+        }
+        self.state.record(offset, max, height);
 
         // What the content registered is in content coordinates.
         let visible = Area::new(viewport.x, viewport.y, content_width, height);
@@ -281,6 +301,20 @@ fn to_screen(area: Area, offset: u16, visible: Area) -> Option<Area> {
         right - area.x,
         bottom - top,
     ))
+}
+
+// The offset that brings `area`, in content rows, into a view `height` rows
+// tall while scrolling as little as possible. An area taller than the view is
+// aligned to its top.
+fn reveal(offset: u16, area: Area, height: u16) -> u16 {
+    let bottom = area.y.saturating_add(area.height);
+    if area.y < offset {
+        area.y
+    } else if bottom > offset.saturating_add(height) {
+        bottom.saturating_sub(height).min(area.y)
+    } else {
+        offset
+    }
 }
 
 fn draw_scrollbar(
@@ -622,5 +656,72 @@ mod tests {
         assert_eq!(state.offset(), 4);
         assert_eq!(state.focus_id(), clone.focus_id());
         assert_ne!(state.focus_id(), ScrollState::new().focus_id());
+    }
+
+    #[test]
+    fn tabbing_to_a_widget_out_of_view_scrolls_it_into_view() {
+        Focus::clear();
+        let state = ScrollState::new();
+        let mut buf = Buffer::new(10, 4);
+        // Ten rows of text, then a button on content row 10.
+        let draw = |canvas: &mut Canvas| {
+            let mut column = Flex::column();
+            for _ in 0..10 {
+                column = column.child(Text::new("x"));
+            }
+            ScrollView::new(&state)
+                .child(column.child(Button::push("Go")))
+                .render(canvas)
+        };
+
+        frame(&mut buf, &[], draw);
+        // The view itself is the first Tab stop, the button the second.
+        frame(&mut buf, &[key(KeyCode::Tab)], draw);
+        assert_eq!(state.offset(), 0);
+        frame(&mut buf, &[key(KeyCode::Tab)], draw);
+        assert_eq!(state.offset(), 7);
+        assert_eq!(row(&buf, 3, 9), "[ Go ]");
+
+        // Scrolling away by hand doesn't snap back while focus stays put.
+        frame(&mut buf, &[mouse(MouseEventKind::ScrollUp, 2, 1)], draw);
+        assert_eq!(state.offset(), 4);
+        frame(&mut buf, &[], draw);
+        assert_eq!(state.offset(), 4);
+    }
+
+    #[test]
+    fn tabbing_to_a_widget_above_scrolls_up_to_it() {
+        Focus::clear();
+        let state = ScrollState::new();
+        let mut buf = Buffer::new(10, 4);
+        // A button on content row 0, then ten rows of text.
+        let draw = |canvas: &mut Canvas| {
+            let mut column = Flex::column().child(Button::push("Top"));
+            for _ in 0..10 {
+                column = column.child(Text::new("x"));
+            }
+            ScrollView::new(&state).child(column).render(canvas)
+        };
+
+        state.set_offset(7);
+        frame(&mut buf, &[], draw);
+        assert_eq!(state.offset(), 7);
+
+        frame(&mut buf, &[key(KeyCode::Tab), key(KeyCode::Tab)], draw);
+        assert_eq!(state.offset(), 0);
+        assert_eq!(row(&buf, 0, 9), "[ Top ]");
+    }
+
+    #[test]
+    fn reveal_moves_as_little_as_possible() {
+        let row_at = |y, height| Area::new(0, y, 4, height);
+        assert_eq!(reveal(5, row_at(6, 1), 4), 5, "already visible");
+        assert_eq!(reveal(5, row_at(2, 1), 4), 2, "above: align top");
+        assert_eq!(reveal(5, row_at(12, 1), 4), 9, "below: align bottom");
+        assert_eq!(
+            reveal(0, row_at(10, 6), 4),
+            10,
+            "taller than the view: its top"
+        );
     }
 }

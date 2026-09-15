@@ -54,6 +54,12 @@ pub struct Div {
     pub children: Vec<Box<dyn Widget>>,
 }
 
+impl Default for Div {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Div {
     pub fn new() -> Self {
         Self {
@@ -146,7 +152,6 @@ impl Div {
         let content = content_area(canvas, &self.options);
         render_children(&self.children, canvas, content);
     }
-
 }
 
 impl Widget for Div {
@@ -362,11 +367,13 @@ fn render_children_incremental(
     let mut flow_y = area.y;
 
     for child in children {
+        // Resolved even for children that are skipped, so the flow position
+        // still moves past them.
+        let child_area = resolve_child_area(child.as_ref(), area, &mut flow_y);
+
         if !child.is_dirty() && !ctx.force_full {
             continue;
         }
-
-        let child_area = resolve_child_area(child.as_ref(), area, &mut flow_y);
 
         if child_area.x >= area.x.saturating_add(area.width)
             || child_area.y >= area.y.saturating_add(area.height)
@@ -1044,5 +1051,23 @@ mod tests {
         assert_eq!(titled.height_for_width(10), 2);
 
         assert_eq!(Div::new().border(true).height_for_width(10), 3);
+    }
+
+    #[test]
+    fn incremental_render_places_dirty_children_after_skipped_ones() {
+        let previous = Buffer::new(6, 4);
+        let mut buf = Buffer::new(6, 4);
+        let mut ctx = RenderContext::new(&previous);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 6, 4));
+
+        Div::new()
+            .dirty(false)
+            .child(Div::new().dirty(false).child(Text::new("skip")))
+            .child(Text::new("x"))
+            .render_with_context(&mut canvas, &mut ctx);
+
+        // The unchanged first child still takes row 0, then the flow gap.
+        assert_eq!(buf.get(0, 0).unwrap().ch, ' ');
+        assert_eq!(buf.get(0, 2).unwrap().ch, 'x');
     }
 }

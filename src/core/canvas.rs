@@ -160,7 +160,7 @@ mod tests {
         let area = Area::new(2, 1, 4, 3);
         let mut canvas = Canvas::new(&mut buf, area);
         let cell = Cell::new('x');
-        canvas.set(0, 0, cell.clone());
+        canvas.set(0, 0, cell);
         let retrieved_cell = buf.get(2, 1).unwrap();
 
         assert_eq!(retrieved_cell.ch, cell.ch);

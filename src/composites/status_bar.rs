@@ -24,6 +24,12 @@ pub struct StatusBar {
     min_len_status: u16,
 }
 
+impl Default for StatusBar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StatusBar {
     pub fn new() -> Self {
         StatusBar {
@@ -242,9 +248,7 @@ mod tests {
 
     #[test]
     fn renders_label_bar_and_percentage() {
-        let bar = StatusBar::new()
-            .label(Text::new("CPU"))
-            .fill(1.0);
+        let bar = StatusBar::new().label(Text::new("CPU")).fill(1.0);
 
         let buf = render_status_bar(&bar, 24);
         assert_eq!(buf.get(0, 0).unwrap().ch, 'C');
