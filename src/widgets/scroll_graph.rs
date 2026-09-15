@@ -32,7 +32,11 @@ fn sparkline_color(start: Color, end: Color, t: f32, steps: u8) -> Color {
     interpolate_color(start, end, discrete_factor(t, steps))
 }
 
-// Scrolling line/area graph rendered with braille characters.
+/// A graph of recent values, drawn as a filled area in braille dots.
+///
+/// The newest [`window`](ScrollGraph::window()) samples span the full width, so pushing new
+/// samples scrolls the graph left. Values are mapped onto the height through
+/// [`range`](ScrollGraph::range).
 pub struct ScrollGraph {
     layout: LayoutOptions,
     start_color: Color,
@@ -49,6 +53,7 @@ pub struct ScrollGraph {
 }
 
 impl ScrollGraph {
+    /// An empty graph of up to 60 samples in the range `0.0..=1.0`.
     pub fn new() -> Self {
         Self {
             layout: LayoutOptions::default(),
@@ -71,43 +76,49 @@ impl ScrollGraph {
         }
     }
 
-    // Single-row mode: each braille cell is colored by its value.
-    // Near-zero values render as a single black bottom braille dot.
+    /// Switches to a one-row sparkline, where each cell is colored by its value in
+    /// [`color_steps`](ScrollGraph::color_steps) bands. Values at the bottom of the range show
+    /// as a single dot.
     pub fn sparkline(mut self) -> Self {
         self.sparkline = true;
         self.layout.height = Some(1);
         self
     }
 
-    // Number of discrete colors along the sparkline gradient (minimum 1).
+    /// Sets how many color bands a sparkline uses, such as 3 for red, yellow and green. Values
+    /// below 1 are raised to 1.
     pub fn color_steps(mut self, n: u8) -> Self {
         self.sparkline_color_steps = n.max(1);
         self
     }
 
+    /// Sets the color at the top of the graph, or of the lowest band in a sparkline.
     pub fn start_color(mut self, color: Color) -> Self {
         self.start_color = color;
         self
     }
 
+    /// Sets the color at the bottom of the graph, or of the highest band in a sparkline.
     pub fn end_color(mut self, color: Color) -> Self {
         self.end_color = color;
         self
     }
 
-    // How many sample values the full width represents.
+    /// Sets how many samples span the full width. Values below 1 are raised to 1.
     pub fn window(mut self, n: usize) -> Self {
         self.window = n.max(1);
         self
     }
 
-    // Value range mapped to the full graph height.
+    /// Sets the values mapped to the bottom and top of the graph. If `max` is not above `min`,
+    /// the range becomes `min..=min + 1`.
     pub fn range(mut self, min: f32, max: f32) -> Self {
         self.min = min;
         self.max = if max <= min { min + 1.0 } else { max };
         self
     }
 
+    /// Sets the value mapped to the bottom of the graph.
     pub fn min(mut self, min: f32) -> Self {
         self.min = min;
         if self.max <= self.min {
@@ -116,6 +127,7 @@ impl ScrollGraph {
         self
     }
 
+    /// Sets the value mapped to the top of the graph.
     pub fn max(mut self, max: f32) -> Self {
         self.max = max;
         if self.max <= self.min {
@@ -124,13 +136,14 @@ impl ScrollGraph {
         self
     }
 
-    // Replace the sample buffer (oldest → newest).
+    /// Replaces the samples, oldest first.
     pub fn values(mut self, values: impl IntoIterator<Item = f32>) -> Self {
         self.values = values.into_iter().collect();
         self
     }
 
-    // Append a sample, trimming to roughly `window` when oversized.
+    /// Appends a sample, discarding the oldest once there are more than twice
+    /// [`window`](ScrollGraph::window()).
     pub fn push(&mut self, value: f32) {
         self.values.push(value);
         let keep = self.window.saturating_mul(2).max(self.window);
@@ -140,40 +153,49 @@ impl ScrollGraph {
         }
     }
 
+    /// Removes every sample.
     pub fn clear(&mut self) {
         self.values.clear();
     }
 
+    /// The samples, oldest first.
     pub fn samples(&self) -> &[f32] {
         &self.values
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows. A sparkline stays one row tall.
     pub fn height(mut self, n: u16) -> Self {
         // Sparklines are always one row tall.
         self.layout.height = Some(if self.sparkline { 1 } else { n });
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }

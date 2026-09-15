@@ -5,15 +5,25 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent}
 
 use super::{Buffer, FrameStats, KeyBinding, RenderContext, Terminal, begin_frame, dispatch_input};
 
-// Target frame rate and runtime options for [`App`].
+/// Options for an [`App`]: frame rate, quit keys and mouse capture.
+///
+/// ```
+/// use auxior::{AppConfig, KeyBinding, KeyCode};
+///
+/// let config = AppConfig::new()
+///     .target_fps(30)
+///     .quit_key(KeyBinding::ctrl(KeyCode::Char('c')))
+///     .mouse_capture(true);
+/// assert_eq!(config.target_fps, 30);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
+    /// The most frames drawn per second. See [`AppConfig::target_fps()`].
     pub target_fps: u64,
-    // Keys that end the event loop before the frame callback sees them.
-    // Empty by default so the application keeps every key; opt in with
-    // [`AppConfig::quit_key`] or [`AppConfig::default_quit_keys`].
+    /// Keys that end [`App::run`] before the frame callback sees them. Empty by default, so the
+    /// application receives every key.
     pub quit_keys: Vec<KeyBinding>,
-    // Whether the terminal reports mouse events. See [`AppConfig::mouse_capture`].
+    /// Whether the terminal reports mouse events. See [`AppConfig::mouse_capture()`].
     pub mouse_capture: bool,
 }
 
@@ -28,16 +38,20 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// The default configuration: 60 frames per second, no quit keys and no mouse capture.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the frame rate the event loop aims for. Values below 1 are raised to 1.
     pub fn target_fps(mut self, fps: u64) -> Self {
         self.target_fps = fps.max(1);
         self
     }
 
-    // Add a key that ends the event loop, such as `'q'` or `KeyCode::Esc`.
+    /// Adds a key that ends the event loop, such as `'q'` or `KeyCode::Esc`.
+    ///
+    /// Adding the same key twice has no further effect.
     pub fn quit_key(mut self, key: impl Into<KeyBinding>) -> Self {
         let binding = key.into();
         if !self.quit_keys.contains(&binding) {
@@ -46,12 +60,12 @@ impl AppConfig {
         self
     }
 
-    // Add a key plus modifiers that ends the event loop.
+    /// Adds a key that ends the event loop only while `modifiers` are held.
     pub fn quit_key_with(self, code: KeyCode, modifiers: KeyModifiers) -> Self {
         self.quit_key(KeyBinding::with(code, modifiers))
     }
 
-    // Replace the quit bindings with `keys`.
+    /// Replaces every quit key with `keys`.
     pub fn quit_keys<I>(mut self, keys: I) -> Self
     where
         I: IntoIterator,
@@ -64,19 +78,22 @@ impl AppConfig {
         self
     }
 
-    // Report mouse events as [`AppEvent::Mouse`] and make widgets such as
-    // [`Button`](crate::Button) clickable. Off by default because while the
-    // terminal captures the mouse, users cannot select text with it.
+    /// Reports mouse events as [`AppEvent::Mouse`], and makes widgets such as
+    /// [`Button`](crate::Button) clickable and [`ScrollView`](crate::ScrollView) scrollable
+    /// with the wheel.
+    ///
+    /// Off by default: while the terminal captures the mouse, users cannot select text with it.
     pub fn mouse_capture(mut self, on: bool) -> Self {
         self.mouse_capture = on;
         self
     }
 
-    // Convenience for the common `q` / `Esc` pair.
+    /// Adds the common pair of quit keys, `q` and `Esc`.
     pub fn default_quit_keys(self) -> Self {
         self.quit_key(KeyCode::Char('q')).quit_key(KeyCode::Esc)
     }
 
+    /// The time budget for one frame at the configured frame rate.
     pub fn frame_duration(&self) -> Duration {
         Duration::from_secs(1) / self.target_fps.max(1) as u32
     }
@@ -90,25 +107,49 @@ impl AppConfig {
     }
 }
 
-// Input and timing events delivered to the frame callback.
+/// Something that happened since the last frame, passed to the [`App::run`] callback.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppEvent {
-    // Frame tick without input (used for animations / idle redraw).
+    /// No input arrived. The frame is drawn on schedule anyway, for animation or live data.
     Tick,
+    /// A key was pressed, repeated or released. Test it with [`KeyBinding::matches`], which
+    /// ignores releases.
     Key(KeyEvent),
-    // Only delivered when [`AppConfig::mouse_capture`] is enabled.
+    /// A mouse event. Only delivered while [`AppConfig::mouse_capture()`] is on.
     Mouse(MouseEvent),
-    Resize { width: u16, height: u16 },
+    /// The terminal was resized.
+    Resize {
+        /// New width in columns.
+        width: u16,
+        /// New height in rows.
+        height: u16,
+    },
 }
 
-// Controls whether the event loop continues.
+/// Whether [`App::run`] keeps going after a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlFlow {
+    /// Draw another frame.
     Continue,
+    /// Return from [`App::run`].
     Break,
 }
 
-// Interactive terminal application with a sync event loop.
+/// Runs an interactive terminal application.
+///
+/// Creating an `App` switches the terminal into raw mode and the alternate screen. Dropping it
+/// restores the terminal, and so does a panic on the thread that created it.
+///
+/// ```no_run
+/// use auxior::{App, AppConfig, ControlFlow};
+///
+/// let mut app = App::with_config(AppConfig::new().default_quit_keys())?;
+/// app.run(|buf, _previous, _events, _ctx, _stats| {
+///     // Draw into `buf` here.
+///     ControlFlow::Continue
+/// })?;
+/// # Ok::<(), std::io::Error>(())
+/// ```
 pub struct App {
     terminal: Terminal,
     config: AppConfig,
@@ -119,10 +160,21 @@ pub struct App {
 }
 
 impl App {
+    /// Starts an app with the default [`AppConfig`].
+    ///
+    /// # Errors
+    ///
+    /// Fails if the terminal cannot be set up, for example when standard output is not a
+    /// terminal.
     pub fn new() -> io::Result<Self> {
         Self::with_config(AppConfig::default())
     }
 
+    /// Starts an app with `config`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the terminal cannot be set up or mouse capture cannot be turned on.
     pub fn with_config(config: AppConfig) -> io::Result<Self> {
         let mut terminal = Terminal::new()?;
         if config.mouse_capture {
@@ -142,25 +194,44 @@ impl App {
         })
     }
 
+    /// Statistics about the last frame sent to the terminal.
     pub fn frame_stats(&self) -> &FrameStats {
         &self.frame_stats
     }
 
+    /// The configuration the app started with.
     pub fn config(&self) -> &AppConfig {
         &self.config
     }
 
+    /// The terminal the app draws to.
     pub fn terminal(&self) -> &Terminal {
         &self.terminal
     }
 
+    /// Mutable access to the terminal the app draws to.
     pub fn terminal_mut(&mut self) -> &mut Terminal {
         &mut self.terminal
     }
 
-    // Run the event loop until the frame callback returns [`ControlFlow::Break`] or the user presses `q` / `Esc`.
-    // Each frame receives all input events collected since the last draw.
-    // If none are pending, the slice contains a single [`AppEvent::Tick`].
+    /// Runs the event loop until `frame` returns [`ControlFlow::Break`] or a quit key is
+    /// pressed.
+    ///
+    /// Each frame, `frame` receives:
+    ///
+    /// - the buffer to draw into, still holding what the previous frame drew;
+    /// - the previous frame's buffer;
+    /// - every event since the last frame, or a single [`AppEvent::Tick`] if there were none;
+    /// - a [`RenderContext`] for incremental drawing with
+    ///   [`Widget::render_with_context`](crate::Widget::render_with_context);
+    /// - statistics about the previous frame.
+    ///
+    /// Input is handled before `frame` runs, so a button pressed this frame already shows its
+    /// effect in what `frame` draws.
+    ///
+    /// # Errors
+    ///
+    /// Fails if reading input or writing to the terminal fails.
     pub fn run<F>(&mut self, mut frame: F) -> io::Result<()>
     where
         F: FnMut(&mut Buffer, &Buffer, &[AppEvent], &mut RenderContext, &FrameStats) -> ControlFlow,

@@ -4,7 +4,10 @@ use crate::{
     Canvas, LayoutOptions, ScrollGraph, StatusType, Text, Widget, widgets::interpolate_color,
 };
 
-// Height is always 1.
+/// A one-row gauge like [`StatusBar`](crate::StatusBar), with a sparkline of recent values in
+/// place of the bar.
+///
+/// The value shown is the newest sample. The graph is always one row tall.
 pub struct SparklineGraph {
     layout: LayoutOptions,
 
@@ -29,6 +32,7 @@ pub struct SparklineGraph {
 }
 
 impl SparklineGraph {
+    /// An empty graph showing a percentage of the range `0.0..=1.0`.
     pub fn new() -> Self {
         SparklineGraph {
             layout: LayoutOptions {
@@ -52,100 +56,120 @@ impl SparklineGraph {
         }
     }
 
+    /// Sets the label shown on the left.
     pub fn label(mut self, label: Text) -> Self {
         self.label = Some(label);
         self
     }
 
+    /// Sets how the value is shown.
     pub fn status_type(mut self, status_type: StatusType) -> Self {
         self.status_type = status_type;
         self
     }
 
+    /// Sets the width of the label column.
     pub fn min_len_label(mut self, min_len: u16) -> Self {
         self.min_len_label = min_len;
         self
     }
 
+    /// Sets the narrowest the sparkline can be.
     pub fn min_len_bar(mut self, min_len: u16) -> Self {
         self.min_len_bar = min_len;
         self
     }
 
+    /// Sets the width of the value column.
     pub fn min_len_status(mut self, min_len: u16) -> Self {
         self.min_len_status = min_len;
         self
     }
 
-    // Explicit 0..=1 override when there are no samples yet.
+    /// Sets the value to show, from `0.0` to `1.0`, while there are no samples yet.
     pub fn fill(mut self, fill: f32) -> Self {
         self.fill = fill.clamp(0.0, 1.0);
         self
     }
 
+    /// Sets the total an [`Actual`](crate::StatusType::Actual) value is out of. Defaults to the
+    /// top of the range.
     pub fn out_of(mut self, out_of: f32) -> Self {
         self.out_of = Some(out_of);
         self
     }
 
+    /// Replaces the samples, oldest first.
     pub fn values(mut self, values: impl IntoIterator<Item = f32>) -> Self {
         self.values = values.into_iter().collect();
         self
     }
 
+    /// Sets the color of the lowest band.
     pub fn start_color(mut self, color: Color) -> Self {
         self.start_color = color;
         self
     }
 
+    /// Sets the color of the highest band.
     pub fn end_color(mut self, color: Color) -> Self {
         self.end_color = color;
         self
     }
 
-    // Discrete gradient stops for the sparkline (e.g. 3 → red / yellow / green).
+    /// Sets how many color bands the sparkline uses, such as 3 for red, yellow and green.
+    /// Values below 1 are raised to 1.
     pub fn color_steps(mut self, n: u8) -> Self {
         self.color_steps = n.max(1);
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
-    // Height is locked to 1 for sparklines.
+    /// Has no effect: the graph is always one row tall.
     pub fn height(mut self, _n: u16) -> Self {
         self.layout.height = Some(1);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// Sets how many samples span the sparkline's width. Values below 1 are raised to 1.
     pub fn window(mut self, n: usize) -> Self {
         self.window = n.max(1);
         self
     }
 
+    /// Sets the values mapped to empty and full. If `max` is not above `min`, the range becomes
+    /// `min..=min + 1`.
     pub fn range(mut self, min: f32, max: f32) -> Self {
         self.min = min;
         self.max = if max <= min { min + 1.0 } else { max };
         self
     }
 
+    /// Sets the value mapped to empty.
     pub fn min(mut self, min: f32) -> Self {
         self.min = min;
         if self.max <= self.min {
@@ -154,6 +178,7 @@ impl SparklineGraph {
         self
     }
 
+    /// Sets the value mapped to full.
     pub fn max(mut self, max: f32) -> Self {
         self.max = max;
         if self.max <= self.min {
@@ -194,6 +219,7 @@ impl SparklineGraph {
         interpolate_color(self.start_color, self.end_color, stepped)
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }

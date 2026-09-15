@@ -6,13 +6,20 @@ use unicode_width::UnicodeWidthChar;
 // covers that column on screen, so the cell is never printed.
 const CONTINUATION: char = '\0';
 
+/// One character cell on screen: a character with its colors and text attributes.
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct Cell {
+    /// The character shown.
     pub ch: char,
+    /// Foreground (text) color.
     pub fg: Color,
+    /// Background color.
     pub bg: Color,
+    /// Bold.
     pub b: bool,
+    /// Italic.
     pub i: bool,
+    /// Underlined.
     pub u: bool,
 }
 
@@ -30,10 +37,12 @@ impl Default for Cell {
 }
 
 impl Cell {
+    /// A blank cell: a space in the terminal's default colors.
     pub fn empty() -> Self {
         Self::default()
     }
 
+    /// A cell showing `ch` in the default colors.
     pub fn new(ch: char) -> Self {
         Self {
             ch,
@@ -41,6 +50,7 @@ impl Cell {
         }
     }
 
+    /// A cell showing `ch` in color `fg`.
     pub fn with_fg(ch: char, fg: Color) -> Self {
         Self {
             ch,
@@ -49,24 +59,27 @@ impl Cell {
         }
     }
 
+    /// This cell in bold.
     pub fn set_bold(mut self: Cell) -> Self {
         self.b = true;
         self
     }
 
+    /// This cell in italics.
     pub fn set_italic(mut self) -> Self {
         self.i = true;
         self
     }
 
+    /// This cell underlined.
     pub fn set_underline(mut self) -> Self {
         self.u = true;
         self
     }
 
-    // Columns this cell's character occupies on screen: 2 for wide glyphs such
-    // as CJK and most emoji, 1 for ordinary text, 0 for continuation cells and
-    // characters with no width of their own (combining marks, controls).
+    /// Columns this cell's character takes on screen: 2 for wide characters such as CJK and
+    /// most emoji, 1 for ordinary text, and 0 for the right half of a wide character or a
+    /// character with no width of its own (combining marks, controls).
     pub fn width(&self) -> u16 {
         if self.is_continuation() {
             return 0;
@@ -74,7 +87,7 @@ impl Cell {
         self.ch.width().unwrap_or(0) as u16
     }
 
-    // Whether this cell is the right half of a wide glyph in the cell before it.
+    /// Whether this cell is the right half of the wide character to its left.
     pub fn is_continuation(&self) -> bool {
         self.ch == CONTINUATION
     }

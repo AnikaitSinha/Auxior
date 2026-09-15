@@ -18,24 +18,37 @@ const MUTED: Color = Color::DarkGrey;
 // Rules fill the width, but an unmeasured width must not make them huge.
 const MAX_RULE: u16 = 256;
 
-// A heading in a rendered document, for a table of contents or for jumping to
-// a section.
+/// A heading in a [`Markdown`] document, for a table of contents or for jumping to a section.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heading {
-    // 1 for `#`, up to 6.
+    /// 1 for `#`, up to 6 for `######`.
     pub level: u8,
+    /// The heading's text, without formatting.
     pub text: String,
-    // The row the heading starts on, at the width it was measured for.
+    /// The row the heading starts on, at the width it was measured for.
     pub row: u16,
 }
 
 type LinkHandler = Box<dyn FnMut(&str)>;
 
-// Renders CommonMark text: headings, paragraphs, emphasis, inline and fenced
-// code, lists, block quotes, rules, images (as their alt text) and links.
-//
-// Text wraps to the width it is given; code blocks do not wrap. Put it in a
-// `ScrollView` for documents longer than the screen.
+/// Renders CommonMark text: headings, paragraphs, emphasis, inline and fenced code, lists,
+/// block quotes, rules, links, and images as their alt text.
+///
+/// Text wraps to the width it is given, while code blocks are clipped. As on docs.rs, lines
+/// starting with `# ` are hidden in Rust code blocks. Tables, HTML and footnotes are left out.
+/// Put it in a [`ScrollView`](crate::ScrollView) for documents longer than the screen.
+///
+/// ```
+/// use auxior::{Area, Buffer, Canvas, Markdown, Widget};
+///
+/// let page = Markdown::new("# Title\n\nSome *emphasis*.");
+/// assert_eq!(page.headings(40)[0].text, "Title");
+///
+/// let mut buf = Buffer::new(40, 3);
+/// let area = Area::new_from_buffer(&buf);
+/// page.render(&mut Canvas::new(&mut buf, area));
+/// assert_eq!(buf.get(0, 2).unwrap().ch, 'S');
+/// ```
 pub struct Markdown {
     source: String,
     layout: LayoutOptions,
@@ -46,6 +59,7 @@ pub struct Markdown {
 }
 
 impl Markdown {
+    /// A document from the Markdown in `source`.
     pub fn new(source: impl Into<String>) -> Self {
         Self {
             source: source.into(),
@@ -56,43 +70,50 @@ impl Markdown {
         }
     }
 
-    // Called with a link's destination when the user clicks it.
+    /// Sets what happens when a link is clicked. The handler receives the link's destination.
+    /// Clicks need mouse capture.
     pub fn on_link(self, handler: impl FnMut(&str) + 'static) -> Self {
         *self.on_link.borrow_mut() = Some(Box::new(handler));
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.layout.height = Some(n);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }
 
-    // The document's headings and the rows they land on when drawn `width`
-    // columns wide.
+    /// The document's headings, with the rows they land on when drawn `width` columns wide.
     pub fn headings(&self, width: u16) -> Vec<Heading> {
         self.lay_out(width).headings.clone()
     }
@@ -308,6 +329,8 @@ impl Builder {
             }
             Tag::BlockQuote(_) => {
                 self.flush();
+                // The gap before a quote is outside it, so it gets no quote bar.
+                self.separate();
                 self.containers.push(Container::Quote);
             }
             Tag::CodeBlock(kind) => {
@@ -490,8 +513,24 @@ impl Builder {
     // Adds the blank row before a new block if one is due, and returns the
     // block's first-row and later-row prefixes.
     fn begin_block(&mut self) -> (Vec<Span>, Vec<Span>) {
-        // Items in a list sit on consecutive rows, and so does a nested list
-        // under its item's text. A list still gets a gap from what precedes it.
+        self.separate();
+
+        let first = self.prefix(true);
+        let rest = self.prefix(false);
+        for container in &mut self.containers {
+            if let Container::Item { used, .. } = container {
+                *used = true;
+            }
+        }
+        self.gap = true;
+        (first, rest)
+    }
+
+    // Adds the blank row that separates a new block from the previous one, if
+    // one is due. Items in a list sit on consecutive rows, and so does a nested
+    // list under its item's text, but a list is still set apart from what
+    // precedes it.
+    fn separate(&mut self) {
         let nested = self.containers.len() > 1
             && self.containers[..self.containers.len() - 1]
                 .iter()
@@ -504,16 +543,7 @@ impl Builder {
             let prefix = self.prefix(false);
             self.blocks.push(Block::Blank { prefix });
         }
-
-        let first = self.prefix(true);
-        let rest = self.prefix(false);
-        for container in &mut self.containers {
-            if let Container::Item { used, .. } = container {
-                *used = true;
-            }
-        }
-        self.gap = true;
-        (first, rest)
+        self.gap = false;
     }
 
     fn prefix(&self, first_row: bool) -> Vec<Span> {
@@ -927,5 +957,11 @@ mod tests {
         draw(&[click(0), click(10)], &mut buf);
 
         assert_eq!(*seen.borrow(), ["page.md", "api.md"]);
+    }
+
+    #[test]
+    fn the_gap_before_a_quote_has_no_quote_bar() {
+        assert_eq!(rows("text\n\n> quoted", 20), ["text", "", "│ quoted"]);
+        assert_eq!(rows("> a\n>\n> > b", 20), ["│ a", "│", "│ │ b"]);
     }
 }

@@ -5,13 +5,21 @@ use crate::{Area, Canvas, Cell, RenderContext, Text};
 use super::button::{BorderAlign, BorderSide, Button};
 use super::widget::{LayoutOptions, Widget};
 
+/// The settings of a [`Div`], for building them up front and applying them with
+/// [`Div::options`].
 #[derive(Debug)]
 pub struct DivOptions {
+    /// Draw a border around the div.
     pub border: bool,
+    /// A title shown in the top border, or without a border on its own row above the content.
     pub title: Option<Text>,
+    /// Buttons drawn into the border.
     pub border_buttons: Vec<Button>,
+    /// Blank cells between the border (or the edge) and the content, on every side.
     pub padding: u16,
+    /// Position and size preferences.
     pub layout: LayoutOptions,
+    /// Whether the div redraws itself when drawn incrementally. See [`Div::dirty`].
     pub dirty: bool,
 }
 
@@ -29,28 +37,53 @@ impl Default for DivOptions {
 }
 
 impl DivOptions {
+    /// Default settings: no border, title or padding.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets whether to draw a border.
     pub fn border(mut self, on: bool) -> Self {
         self.border = on;
         self
     }
 
+    /// Sets the title.
     pub fn title(mut self, text: Text) -> Self {
         self.title = Some(text);
         self
     }
 
+    /// Sets the padding on every side.
     pub fn padding(mut self, n: u16) -> Self {
         self.padding = n;
         self
     }
 }
 
+/// A box that stacks its children top to bottom, with an optional border, title and padding.
+///
+/// Children flow downward with a blank row between them. A child with a `y` position is placed
+/// there instead, outside the flow. For rows, columns and proportional sizes, put a
+/// [`Flex`](crate::Flex) inside.
+///
+/// ```
+/// use auxior::{Area, Buffer, Canvas, Div, Text, Widget};
+///
+/// let mut buf = Buffer::new(20, 5);
+/// let area = Area::new_from_buffer(&buf);
+/// Div::new()
+///     .border(true)
+///     .title(Text::new("Status"))
+///     .child(Text::new("All good"))
+///     .render(&mut Canvas::new(&mut buf, area));
+///
+/// assert_eq!(buf.get(1, 1).unwrap().ch, 'A');
+/// ```
 pub struct Div {
+    /// The div's settings.
     pub options: DivOptions,
+    /// The widgets inside, in drawing order.
     pub children: Vec<Box<dyn Widget>>,
 }
 
@@ -61,6 +94,7 @@ impl Default for Div {
 }
 
 impl Div {
+    /// An empty div with no border, title or padding.
     pub fn new() -> Self {
         Self {
             options: DivOptions::default(),
@@ -68,11 +102,13 @@ impl Div {
         }
     }
 
+    /// Replaces every setting with `options`.
     pub fn options(mut self, options: DivOptions) -> Self {
         self.options = options;
         self
     }
 
+    /// Sets whether to draw a border.
     pub fn border(mut self, on: bool) -> Self {
         self.options.border = on;
         self
@@ -83,51 +119,68 @@ impl Div {
     //     self
     // }
 
+    /// Sets the title, shown in the top border or, without a border, on its own row above the
+    /// content.
     pub fn title(mut self, text: Text) -> Self {
         self.options.title = Some(text);
         self
     }
 
+    /// Sets the blank cells between the border and the content, on every side.
     pub fn padding(mut self, n: u16) -> Self {
         self.options.padding = n;
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.options.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.options.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.options.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.options.layout.height = Some(n);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.options.layout.flex = Some(n);
         self
     }
 
+    /// Adds a child below the previous ones.
     pub fn child(mut self, child: impl Widget + 'static) -> Self {
         self.children.push(Box::new(child));
         self
     }
 
+    /// Adds a button to the border. Make it with
+    /// [`Button::border_button`](crate::Button::border_button).
     pub fn border_button(mut self, button: Button) -> Self {
         self.options.border_buttons.push(button);
         self
     }
 
+    /// Sets whether the div redraws itself when drawn with
+    /// [`render_with_context`](crate::Widget::render_with_context).
+    ///
+    /// A div that is not dirty keeps what it drew last frame and only redraws the children that
+    /// are dirty themselves. Defaults to `true`.
     pub fn dirty(mut self, on: bool) -> Self {
         self.options.dirty = on;
         self

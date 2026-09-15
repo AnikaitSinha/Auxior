@@ -1,5 +1,26 @@
 use crate::{Area, Canvas, LayoutOptions, Widget};
 
+/// Places children in a grid, filling each row left to right before starting the next.
+///
+/// Columns and rows are sized like a [`Flex`](crate::Flex): a column takes the widest fixed
+/// width among its children, or otherwise their widest natural width, and columns with a `flex`
+/// weight share what is left. Rows work the same way with heights.
+///
+/// ```
+/// use auxior::{Area, Buffer, Canvas, Grid, Text, Widget};
+///
+/// let mut buf = Buffer::new(10, 2);
+/// let area = Area::new_from_buffer(&buf);
+/// Grid::new()
+///     .cols(2)
+///     .child(Text::new("a").flex(1))
+///     .child(Text::new("b").flex(1))
+///     .child(Text::new("c"))
+///     .render(&mut Canvas::new(&mut buf, area));
+///
+/// assert_eq!(buf.get(5, 0).unwrap().ch, 'b');
+/// assert_eq!(buf.get(0, 1).unwrap().ch, 'c');
+/// ```
 pub struct Grid {
     cols: u16,
     col_gap: u16,
@@ -9,6 +30,7 @@ pub struct Grid {
 }
 
 impl Grid {
+    /// An empty grid with one column.
     pub fn new() -> Self {
         Self {
             cols: 1,
@@ -19,57 +41,69 @@ impl Grid {
         }
     }
 
+    /// Sets the number of columns. Values below 1 are raised to 1.
     pub fn cols(mut self, cols: u16) -> Self {
         self.cols = cols.max(1);
         self
     }
 
+    /// Sets the gap between columns and between rows.
     pub fn gap(mut self, n: u16) -> Self {
         self.col_gap = n;
         self.row_gap = n;
         self
     }
 
+    /// Sets the blank columns between neighboring columns.
     pub fn col_gap(mut self, col_gap: u16) -> Self {
         self.col_gap = col_gap;
         self
     }
 
+    /// Sets the blank rows between neighboring rows.
     pub fn row_gap(mut self, row_gap: u16) -> Self {
         self.row_gap = row_gap;
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.layout.height = Some(n);
         self
     }
 
+    /// Adds a child in the next cell.
     pub fn child(mut self, child: impl Widget + 'static) -> Self {
         self.children.push(Box::new(child));
         self
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }

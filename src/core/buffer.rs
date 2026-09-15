@@ -2,14 +2,21 @@ use crate::Area;
 
 use super::Cell;
 
+/// A grid of [`Cell`]s that widgets draw into, usually the size of the screen.
+///
+/// Coordinates are `(x, y)`, with `(0, 0)` at the top left. Reads and writes outside the grid
+/// are ignored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Buffer {
+    /// Width in columns.
     pub width: u16,
+    /// Height in rows.
     pub height: u16,
     cells: Vec<Cell>,
 }
 
 impl Buffer {
+    /// A buffer of `width` × `height` blank cells.
     pub fn new(width: u16, height: u16) -> Self {
         let len = width as usize * height as usize;
         Self {
@@ -19,21 +26,31 @@ impl Buffer {
         }
     }
 
+    /// Sets every cell to `cell`.
+    ///
+    /// Unlike [`Buffer::set`], this does not pair up wide characters, so fill with a
+    /// single-width character.
     pub fn fill(&mut self, cell: Cell) {
         self.cells.fill(cell);
     }
 
+    /// The cell at `(x, y)`, or `None` outside the buffer.
     pub fn get(&self, x: u16, y: u16) -> Option<&Cell> {
         self.index(x, y).map(|i| &self.cells[i])
     }
 
+    /// Mutable access to the cell at `(x, y)`, or `None` outside the buffer.
+    ///
+    /// Writing through this skips the wide-character bookkeeping that [`Buffer::set`] does.
     pub fn get_mut(&mut self, x: u16, y: u16) -> Option<&mut Cell> {
         self.index(x, y).map(|i| &mut self.cells[i])
     }
 
-    // Writes `cell`, keeping double-width glyphs intact: a wide glyph claims
-    // the cell to its right as a continuation, and overwriting either half of
-    // an existing wide glyph blanks the other half so no orphan is left.
+    /// Writes `cell` at `(x, y)`, ignoring positions outside the buffer.
+    ///
+    /// Double-width characters such as `日` are kept whole: one claims the cell to its right as
+    /// well, and overwriting either half of an existing one blanks the other half. A wide
+    /// character that would not fit in the last column becomes a space.
     pub fn set(&mut self, x: u16, y: u16, cell: Cell) {
         let Some(i) = self.index(x, y) else {
             return;
@@ -86,11 +103,12 @@ impl Buffer {
         Some(y as usize * self.width as usize + x as usize)
     }
 
-    // diff helper functions
+    /// Every cell, row by row from the top.
     pub fn as_slice(&self) -> &[Cell] {
         &self.cells
     }
 
+    /// Makes this buffer a copy of `other_buffer`, resizing it if needed.
     pub fn copy_buffer_from(&mut self, other_buffer: &Buffer) {
         if self.height != other_buffer.height || self.width != other_buffer.width {
             *self = other_buffer.clone();
@@ -99,6 +117,7 @@ impl Buffer {
         self.cells.copy_from_slice(&other_buffer.cells);
     }
 
+    /// Every coordinate in the buffer, row by row from the top.
     pub fn all_coords(&self) -> Vec<(u16, u16)> {
         let mut coords = Vec::with_capacity(self.cells.len());
         for y in 0..self.height {
@@ -109,6 +128,9 @@ impl Buffer {
         coords
     }
 
+    /// The coordinates inside `area` whose cells differ from `prev`, row by row.
+    ///
+    /// Buffers of different sizes differ everywhere, so then every coordinate is returned.every
     pub fn diff_region(&self, prev: &Buffer, area: Area) -> Vec<(u16, u16)> {
         // If sizes differ, treat everything as changed
         if self.width != prev.width || self.height != prev.height {
@@ -131,6 +153,8 @@ impl Buffer {
         changed
     }
 
+    /// Copies the cells in `src_area` of `src` to `dst` in this buffer, clipped to both buffers
+    /// and to the smaller of the two areas.
     pub fn copy_region(&mut self, dst: Area, src: &Buffer, src_area: Area) {
         let w = dst
             .width

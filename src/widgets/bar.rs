@@ -31,6 +31,7 @@ pub fn interpolate_color(left: Color, right: Color, factor: f32) -> Color {
     Color::Rgb { r, g, b }
 }
 
+/// A one-row progress bar that fades from one color to another along its length.
 pub struct Bar {
     layout: LayoutOptions,
     bg: Color,
@@ -41,6 +42,7 @@ pub struct Bar {
 }
 
 impl Bar {
+    /// A full bar fading from red to green.
     pub fn new() -> Self {
         Self {
             layout: LayoutOptions::default(),
@@ -52,56 +54,69 @@ impl Bar {
         }
     }
 
+    /// Reserved for bars that fill in other directions. Bars currently always fill left to
+    /// right, so this has no effect.
     pub fn direction(mut self, dir: Direction) -> Self {
         self.direction = dir;
         self
     }
 
+    /// Sets the color of the unfilled part.
     pub fn bg(mut self, bg: Color) -> Self {
         self.bg = bg;
         self
     }
 
+    /// Sets how full the bar is, from `0.0` to `1.0`. Values outside that range are clamped.
     pub fn fill(mut self, fill: f32) -> Self {
         self.fill = fill.clamp(0.0, 1.0);
         self
     }
 
+    /// Sets the color at the empty end.
     pub fn start_color(mut self, color: Color) -> Self {
         self.start_color = color;
         self
     }
 
+    /// Sets the color at the full end.
     pub fn end_color(mut self, color: Color) -> Self {
         self.end_color = color;
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.layout.height = Some(n);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }

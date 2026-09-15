@@ -8,6 +8,22 @@ use crossterm::style::Color;
 
 use crate::{LayoutOptions, Widget};
 
+/// A block of text, one row per line.
+///
+/// Lines are cut off at the edge unless [`wrap`](Text::wrap()) is on.
+///
+/// ```
+/// use auxior::{Area, Buffer, Canvas, Color, Text, Widget};
+///
+/// let mut buf = Buffer::new(6, 2);
+/// let area = Area::new_from_buffer(&buf);
+/// Text::new("hello world")
+///     .wrap(true)
+///     .fg(Color::Cyan)
+///     .render(&mut Canvas::new(&mut buf, area));
+///
+/// assert_eq!(buf.get(0, 1).unwrap().ch, 'w');
+/// ```
 #[derive(Debug, Clone)]
 pub struct Text {
     content: String,
@@ -20,6 +36,7 @@ pub struct Text {
 }
 
 impl Text {
+    /// Text showing `content`. Each line break starts a new row.
     pub fn new(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
@@ -32,58 +49,69 @@ impl Text {
         }
     }
 
+    /// Sets the text color.
     pub fn fg(mut self, color: Color) -> Self {
         self.fg = color;
         self
     }
 
+    /// Sets whether the text is bold.
     pub fn bold(mut self, set: bool) -> Self {
         self.bold = set;
         self
     }
 
+    /// Sets whether the text is italic.
     pub fn italic(mut self, set: bool) -> Self {
         self.italic = set;
         self
     }
 
+    /// Sets whether the text is underlined.
     pub fn underline(mut self, set: bool) -> Self {
         self.underline = set;
         self
     }
 
-    // Break long lines between words to fit the available width, instead of
-    // cutting them off at the edge.
+    /// Sets whether long lines break between words to fit the width, instead of being cut off.
+    /// Wide characters wrap by display width, and a word longer than a whole row is split.
     pub fn wrap(mut self, on: bool) -> Self {
         self.wrap = on;
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.layout.height = Some(n);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// The text, as given.
     pub fn content(&self) -> &str {
         &self.content
     }

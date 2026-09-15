@@ -5,39 +5,61 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::{Focus, FocusId};
 
-// A key plus the modifiers held with it, as an application names it.
-//
-// Built from a `char` for ordinary letters (`'q'`), from a [`KeyCode`] for
-// named keys (`KeyCode::Enter`), or with [`KeyBinding::ctrl`] and friends.
+/// A key plus the modifiers held with it.
+///
+/// Build one from a `char` for ordinary characters, from a [`KeyCode`] for named keys, or with
+/// [`KeyBinding::ctrl`] and friends:
+///
+/// ```
+/// use auxior::{KeyBinding, KeyCode, KeyEvent, KeyModifiers};
+///
+/// let copy = KeyBinding::ctrl(KeyCode::Char('c'));
+/// assert!(copy.matches(&KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)));
+///
+/// let enter: KeyBinding = KeyCode::Enter.into();
+/// let quit: KeyBinding = 'q'.into();
+/// # let _ = (enter, quit);
+/// ```
+///
+/// A character already carries its own Shift, so `'A'` matches however the terminal reports a
+/// capital A.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyBinding {
+    /// The key.
     pub code: KeyCode,
+    /// Modifiers that must be held. Never includes Shift for a character.
     pub modifiers: KeyModifiers,
 }
 
 impl KeyBinding {
+    /// The key with no modifiers.
     pub fn new(code: KeyCode) -> Self {
         Self::with(code, KeyModifiers::NONE)
     }
 
+    /// The key with `modifiers` held.
     pub fn with(code: KeyCode, modifiers: KeyModifiers) -> Self {
         let (code, modifiers) = Self::normalize(code, modifiers);
         Self { code, modifiers }
     }
 
+    /// The key with Ctrl held.
     pub fn ctrl(code: KeyCode) -> Self {
         Self::with(code, KeyModifiers::CONTROL)
     }
 
+    /// The key with Alt held.
     pub fn alt(code: KeyCode) -> Self {
         Self::with(code, KeyModifiers::ALT)
     }
 
+    /// The key with Shift held. For a character, Shift is dropped: bind the shifted character
+    /// instead, such as `'A'`.
     pub fn shift(code: KeyCode) -> Self {
         Self::with(code, KeyModifiers::SHIFT)
     }
 
-    // The binding a key event stands for, or `None` for a key being released.
+    /// The binding a key event stands for, or `None` for a key being released.
     pub fn from_event(event: &KeyEvent) -> Option<Self> {
         if event.kind == KeyEventKind::Release {
             return None;
@@ -45,6 +67,7 @@ impl KeyBinding {
         Some(Self::with(event.code, event.modifiers))
     }
 
+    /// Whether `event` is this key being pressed or repeated.
     pub fn matches(&self, event: &KeyEvent) -> bool {
         Self::from_event(event) == Some(*self)
     }

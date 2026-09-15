@@ -7,22 +7,49 @@ use crossterm::style::Color;
 use crate::core::{Focus, FocusId, KeyBinding, KeyMap, MouseMap};
 use crate::{Area, Canvas, Cell, LayoutOptions, Widget};
 
+/// Which edge of a [`Div`](crate::Div) a border button sits on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BorderSide {
+    /// The top edge.
     #[default]
     Top,
+    /// The bottom edge.
     Bottom,
+    /// The left edge.
     Left,
+    /// The right edge.
     Right,
 }
 
+/// Where along its edge a border button sits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BorderAlign {
+    /// Towards the start: the left of a horizontal edge, the top of a vertical one.
     #[default]
     Start,
+    /// Towards the end: the right of a horizontal edge, the bottom of a vertical one.
     End,
 }
 
+/// A label that runs a handler when pressed: by its key, by Enter or Space while focused, or by
+/// a click while mouse capture is on.
+///
+/// ```
+/// use std::cell::Cell;
+/// use std::rc::Rc;
+///
+/// use auxior::Button;
+///
+/// let count = Rc::new(Cell::new(0));
+/// let counter = count.clone();
+/// let add = Button::push("Add")
+///     .key('+')
+///     .on_press(move || counter.set(counter.get() + 1));
+/// # let _ = add;
+/// ```
+///
+/// Like other widgets, buttons are rebuilt every frame, so the handler usually captures shared
+/// state such as an `Rc<Cell<_>>`.
 pub struct Button {
     label: String,
     button_type: ButtonType,
@@ -44,6 +71,7 @@ pub enum ButtonType {
 }
 
 impl Button {
+    /// A push button, drawn as `[ label ]`.
     pub fn push(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -59,6 +87,8 @@ impl Button {
         }
     }
 
+    /// A toggle button, drawn as `[x] label` while [`active`](Button::active) and `[ ] label`
+    /// otherwise.
     pub fn toggle(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -74,7 +104,9 @@ impl Button {
         }
     }
 
-    // Clickable segment rendered on a [`Div`](crate::Div) border.
+    /// A button drawn into a [`Div`](crate::Div)'s border. Add it with
+    /// [`Div::border_button`](crate::Div::border_button), and place it with
+    /// [`side`](Button::side) and [`align`](Button::align).
     pub fn border_button(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -90,93 +122,112 @@ impl Button {
         }
     }
 
+    /// Sets which edge of the div a border button sits on.
     pub fn side(mut self, side: BorderSide) -> Self {
         self.border_side = Some(side);
         self
     }
 
+    /// Sets where along its edge a border button sits.
     pub fn align(mut self, align: BorderAlign) -> Self {
         self.border_align = align;
         self
     }
 
+    /// The edge a border button sits on, if set.
     pub fn border_side(&self) -> Option<BorderSide> {
         self.border_side
     }
 
+    /// Where along its edge a border button sits.
     pub fn border_align(&self) -> BorderAlign {
         self.border_align
     }
 
+    /// Whether this button was made with [`Button::border_button`].
     pub fn is_border_button(&self) -> bool {
         matches!(self.button_type, ButtonType::BorderPush)
     }
 
+    /// Sets the label color.
     pub fn fg(mut self, color: Color) -> Self {
         self.fg = color;
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.layout.height = Some(n);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
-    // The key that fires this button, such as `'s'` or `KeyCode::Enter`.
+    /// Sets a key that presses the button whether or not it has focus, such as `'s'` or
+    /// `KeyCode::F(2)`.
     pub fn key(mut self, key: impl Into<KeyBinding>) -> Self {
         self.key = Some(key.into());
         self
     }
 
-    // A stable focus identity, for a button drawn after widgets that can
-    // appear or disappear. Must be unique among the widgets on screen.
+    /// Names the button, so it keeps focus when widgets drawn before it appear or disappear.
+    /// Names must be unique among the widgets on screen.
     pub fn id(mut self, name: &str) -> Self {
         self.focus_id = Some(FocusId::named(name));
         self
     }
 
+    /// Sets what happens when the button is pressed.
     pub fn on_press(self, f: impl FnMut() + 'static) -> Self {
         *self.on_action.borrow_mut() = Some(Box::new(f));
         self
     }
 
+    /// Sets whether a toggle button shows as on.
     pub fn active(mut self, on: bool) -> Self {
         self.state = on;
         self
     }
 
+    /// Whether a toggle button shows as on.
     pub fn state(&self) -> bool {
         self.state
     }
 
+    /// The label text.
     pub fn label(&self) -> &str {
         &self.label
     }
 
+    /// The label color.
     pub fn fg_color(&self) -> Color {
         self.fg
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }

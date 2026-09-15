@@ -1,5 +1,10 @@
 use crate::{Canvas, LayoutOptions, Text, Widget};
 
+/// Rows of [`Text`] cells in columns, with an optional header row.
+///
+/// Columns share the width in proportion to their [`min_len_per_col`](Table::min_len_per_col())
+/// minimums. The table draws nothing if the space is narrower than those minimums or shorter
+/// than [`min_height`](Table::min_height()).
 pub struct Table {
     layout: LayoutOptions,
     rows: Vec<Vec<Text>>,
@@ -17,6 +22,7 @@ impl Default for Table {
 }
 
 impl Table {
+    /// An empty table.
     pub fn new() -> Self {
         Table {
             layout: LayoutOptions::default(),
@@ -29,66 +35,86 @@ impl Table {
         }
     }
 
+    /// Sets the number of columns. The table still grows to fit its widest row, its header or
+    /// its minimum widths.
     pub fn num_of_cols(mut self, num_of_cols: u16) -> Self {
         self.num_of_cols = num_of_cols;
         self
     }
 
+    /// Adds a row at the bottom.
     pub fn add_row(mut self, row: Vec<Text>) -> Self {
         self.rows.push(row);
         self
     }
 
+    /// Inserts a row at `index`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is greater than the number of rows.
     pub fn add_row_at(mut self, index: u16, row: Vec<Text>) -> Self {
         self.rows.insert(index as usize, row);
         self
     }
 
+    /// Sets whether to show the header row.
     pub fn header(mut self, enable: bool) -> Self {
         self.header = enable;
         self
     }
 
+    /// Sets the header row's cells.
     pub fn header_labels(mut self, labels: Vec<Text>) -> Self {
         self.header_labels = labels;
         self
     }
 
+    /// Sets the fewest rows the table needs to draw at all.
     pub fn min_height(mut self, min_height: u16) -> Self {
         self.min_height = min_height;
         self
     }
 
+    /// Sets each column's minimum width, which also sets how the width is shared between
+    /// columns.
     pub fn min_len_per_col(mut self, min_len_per_col: Vec<u16>) -> Self {
         self.min_len_per_col = min_len_per_col;
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.layout.height = Some(n);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }

@@ -1,5 +1,9 @@
 use crate::{Canvas, LayoutOptions, Text, Widget};
 
+/// Lines of [`Text`] stacked top to bottom.
+///
+/// Draws nothing if the space is smaller than [`min_len`](List::min_len()) ×
+/// [`min_height`](List::min_height()).
 pub struct List {
     layout: LayoutOptions,
     elements: Vec<Text>,
@@ -14,6 +18,7 @@ impl Default for List {
 }
 
 impl List {
+    /// An empty list that needs at least 6 × 2 cells to draw.
     pub fn new() -> Self {
         List {
             layout: LayoutOptions::default(),
@@ -23,46 +28,56 @@ impl List {
         }
     }
 
+    /// Adds a line at the bottom. Any position set on the text is ignored.
     pub fn add_element(mut self, element: Text) -> Self {
         self.elements.push(element.x(0).y(0));
         self
     }
 
+    /// Sets the fewest rows the list needs to draw at all.
     pub fn min_height(mut self, min_height: u16) -> Self {
         self.min_height = min_height;
         self
     }
 
+    /// Sets the fewest columns the list needs to draw at all.
     pub fn min_len(mut self, min_len: u16) -> Self {
         self.min_len = min_len;
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.layout.height = Some(n);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }

@@ -1,23 +1,39 @@
 use super::{Area, Buffer};
 
-// Flush/diff statistics from the previous frame.
+/// Statistics about one frame sent to the terminal, for tuning and debugging.
 #[derive(Debug, Clone, Default)]
 pub struct FrameStats {
+    /// Cells that changed and were written to the terminal.
     pub flushed_cells: usize,
+    /// Cells compared with the previous frame: those inside dirty regions, each counted once.
     pub checked_cells: usize,
+    /// Areas marked as redrawn.
     pub dirty_regions: usize,
+    /// Cells on screen.
     pub total_cells: u64,
+    /// Whether every cell was compared, as on the first frame and after a resize.
     pub force_full: bool,
+    /// Coordinates of the cells written to the terminal.
     pub flushed_coords: Vec<(u16, u16)>,
 }
 
+/// Tracks which parts of the screen were redrawn this frame, so only those are compared with
+/// the previous frame.
+///
+/// [`App::run`](crate::App::run) passes one to each frame. Widgets drawn with
+/// [`Widget::render_with_context`](crate::Widget::render_with_context) mark their area dirty;
+/// areas nothing marks are assumed unchanged.
 pub struct RenderContext<'a> {
+    /// The previous frame.
     pub previous: &'a Buffer,
+    /// Areas marked as redrawn this frame.
     pub dirty_regions: Vec<Area>,
+    /// Compare every cell, ignoring the dirty regions.
     pub force_full: bool,
 }
 
 impl<'a> RenderContext<'a> {
+    /// A context comparing against `previous`, with nothing marked yet.
     pub fn new(previous: &'a Buffer) -> Self {
         Self {
             previous,
@@ -26,12 +42,15 @@ impl<'a> RenderContext<'a> {
         }
     }
 
+    /// Marks `area` as redrawn this frame. Empty areas are ignored.
     pub fn mark_dirty(&mut self, area: Area) {
         if area.width > 0 && area.height > 0 {
             self.dirty_regions.push(area);
         }
     }
 
+    /// The cells in the dirty regions (or everywhere, with [`force_full`](Self::force_full))
+    /// that differ from the previous frame, row by row.
     pub fn diff_coords(&self, current: &Buffer) -> Vec<(u16, u16)> {
         if self.force_full {
             return current.diff_region(
@@ -55,7 +74,7 @@ impl<'a> RenderContext<'a> {
         coords
     }
 
-    // Unique cells covered by dirty regions (overlaps counted once).
+    /// How many cells the dirty regions cover, counting overlaps once.
     pub fn checked_cells(&self, buffer: &Buffer) -> usize {
         if self.force_full {
             return buffer.width as usize * buffer.height as usize;

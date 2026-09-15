@@ -7,11 +7,11 @@ use crossterm::style::Color;
 use crate::core::{Focus, FocusId, KeyMap, MouseMap};
 use crate::{Area, Buffer, Canvas, Cell, LayoutOptions, Widget};
 
-// How far a [`ScrollView`] is scrolled, kept by the application across frames.
-//
-// Widgets are rebuilt every frame, so a view cannot remember its own position.
-// Create one `ScrollState` per scrollable view, outside the frame loop, and
-// pass it to the view each frame. Clones share the same position.
+/// How far a [`ScrollView`] is scrolled, kept by the application between frames.
+///
+/// Widgets are rebuilt every frame, so a view cannot remember its own position. Create one
+/// `ScrollState` per scrollable view, outside the frame loop, and pass it to the view each
+/// frame. Clones share one position, so a handler can hold a clone to scroll the view.
 #[derive(Debug, Clone, Default)]
 pub struct ScrollState {
     inner: Rc<ScrollInner>,
@@ -28,36 +28,40 @@ struct ScrollInner {
 }
 
 impl ScrollState {
+    /// A state scrolled to the top.
     pub fn new() -> Self {
         Self::default()
     }
 
-    // Rows scrolled past the top of the content.
+    /// Rows scrolled past the top of the content.
     pub fn offset(&self) -> u16 {
         self.inner.offset.get()
     }
 
-    // The furthest the content could scroll, as of the last render.
+    /// The furthest the content can scroll, as of the last time the view was drawn.
     pub fn max_offset(&self) -> u16 {
         self.inner.max.get()
     }
 
-    // Kept within the content when the view next renders.
+    /// Scrolls to `offset` rows from the top. An offset past the end is pulled back when the
+    /// view is next drawn.
     pub fn set_offset(&self, offset: u16) {
         self.inner.offset.set(offset);
     }
 
-    // Scrolls by `rows` (negative is up), stopping at either end.
+    /// Scrolls by `rows`, negative for up, stopping at either end.
     pub fn scroll_by(&self, rows: i32) {
         let target = i32::from(self.offset()).saturating_add(rows);
         let clamped = target.clamp(0, i32::from(self.max_offset()));
         self.inner.offset.set(clamped as u16);
     }
 
+    /// Scrolls to the top.
     pub fn scroll_to_top(&self) {
         self.inner.offset.set(0);
     }
 
+    /// Scrolls to the bottom, as of the last time the view was drawn.
     pub fn scroll_to_bottom(&self) {
         self.inner.offset.set(self.max_offset());
     }
@@ -85,11 +89,29 @@ impl ScrollState {
 // What a key does to a focused view's scroll position.
 type ScrollAction = fn(&ScrollState);
 
-// Shows a window onto content taller than the space it is given.
-//
-// Focus the view (Tab, or click it) to scroll with the arrow keys, Page Up,
-// Page Down, Home and End; the mouse wheel scrolls whichever view is under the
-// pointer. Widgets inside stay interactive where they appear.
+/// Shows a window onto content taller than the space it is given.
+///
+/// Focus the view with Tab or a click to scroll it with the arrow keys, Page Up, Page Down,
+/// Home and End. The mouse wheel scrolls whichever view is under the pointer. Widgets inside
+/// stay interactive where they appear, and a widget inside that gains focus is scrolled into
+/// view.
+///
+/// ```
+/// use auxior::{Area, Buffer, Canvas, ScrollState, ScrollView, Text, Widget};
+///
+/// // Once, outside the frame loop:
+/// let scroll = ScrollState::new();
+/// scroll.set_offset(2);
+///
+/// // Each frame:
+/// let mut buf = Buffer::new(10, 2);
+/// let area = Area::new_from_buffer(&buf);
+/// ScrollView::new(&scroll)
+///     .child(Text::new("one\ntwo\nthree\nfour"))
+///     .render(&mut Canvas::new(&mut buf, area));
+///
+/// assert_eq!(buf.get(0, 0).unwrap().ch, 't'); // "three"
+/// ```
 pub struct ScrollView {
     state: ScrollState,
     child: Option<Box<dyn Widget>>,
@@ -98,6 +120,7 @@ pub struct ScrollView {
 }
 
 impl ScrollView {
+    /// A view scrolled according to `state`.
     pub fn new(state: &ScrollState) -> Self {
         Self {
             state: state.clone(),
@@ -107,44 +130,52 @@ impl ScrollView {
         }
     }
 
-    // The content to scroll. To scroll several widgets, put them in a `Flex`
-    // column.
+    /// Sets the content to scroll. To scroll several widgets, put them in a
+    /// [`Flex`](crate::Flex) column.
     pub fn child(mut self, child: impl Widget + 'static) -> Self {
         self.child = Some(Box::new(child));
         self
     }
 
-    // Show a scrollbar in the rightmost column while the content overflows.
+    /// Sets whether a scrollbar shows in the rightmost column while the content overflows. On
+    /// by default.
     pub fn scrollbar(mut self, on: bool) -> Self {
         self.scrollbar = on;
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.layout.height = Some(n);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }

@@ -13,16 +13,21 @@ pub(crate) fn text_width(text: &str) -> u16 {
     columns.min(u16::MAX as usize) as u16
 }
 
-// Area Struct
+/// A rectangle of cells: a position and a size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Area {
+    /// Column of the left edge.
     pub x: u16,
+    /// Row of the top edge.
     pub y: u16,
+    /// Width in columns.
     pub width: u16,
+    /// Height in rows.
     pub height: u16,
 }
 
 impl Area {
+    /// A `width` × `height` rectangle whose top left is `(x, y)`.
     pub fn new(x: u16, y: u16, width: u16, height: u16) -> Self {
         Self {
             x,
@@ -32,11 +37,12 @@ impl Area {
         }
     }
 
-    // Whether the cell at (x, y) lies inside this area.
+    /// Whether the cell at `(x, y)` lies inside this area.
     pub fn contains(&self, x: u16, y: u16) -> bool {
         x >= self.x && y >= self.y && x - self.x < self.width && y - self.y < self.height
     }
 
+    /// The area covering all of `buffer`.
     pub fn new_from_buffer(buffer: &Buffer) -> Self {
         Self {
             x: 0,
@@ -47,7 +53,21 @@ impl Area {
     }
 }
 
-// Canvas
+/// A rectangular window onto a [`Buffer`] that widgets draw through.
+///
+/// Coordinates on a canvas are relative to its own top left, and anything drawn outside it is
+/// clipped, so a widget never needs to know where on screen it is.
+///
+/// ```
+/// use auxior::{Area, Buffer, Canvas, Cell};
+///
+/// let mut buf = Buffer::new(10, 5);
+/// let mut canvas = Canvas::new(&mut buf, Area::new(2, 1, 4, 3));
+/// canvas.set(0, 0, Cell::new('x'));
+/// canvas.set(9, 0, Cell::new('!')); // Outside the canvas, so ignored.
+///
+/// assert_eq!(buf.get(2, 1).unwrap().ch, 'x');
+/// ```
 pub struct Canvas<'a> {
     buffer: &'a mut Buffer,
     x: u16,
@@ -57,6 +77,7 @@ pub struct Canvas<'a> {
 }
 
 impl<'a> Canvas<'a> {
+    /// A canvas over `area` of `buffer`.
     pub fn new(buffer: &'a mut Buffer, area: Area) -> Self {
         Self {
             buffer,
@@ -67,14 +88,20 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// Width in columns.
     pub fn width(&self) -> u16 {
         self.width
     }
 
+    /// Height in rows.
     pub fn height(&self) -> u16 {
         self.height
     }
 
+    /// Writes `cell` at `(local_x, local_y)`, ignoring positions outside the canvas.
+    ///
+    /// A double-width character in the last column becomes a space rather than spilling past
+    /// the edge.
     pub fn set(&mut self, local_x: u16, local_y: u16, cell: Cell) {
         if local_x >= self.width || local_y >= self.height {
             return;
@@ -91,11 +118,13 @@ impl<'a> Canvas<'a> {
         self.buffer.set(self.x + local_x, self.y + local_y, cell);
     }
 
-    // Writes `text` on one row starting at `local_x`, advancing by each
-    // character's display width, and returns the number of columns used.
-    // `style` supplies colors and attributes; its `ch` is ignored. Characters
-    // with no width of their own (combining marks, controls) are skipped, and
-    // text is clipped at the canvas edge without splitting a wide glyph.
+    /// Writes `text` on one row starting at `(local_x, local_y)`, and returns how many columns
+    /// it used.
+    ///
+    /// `style` supplies the colors and attributes; its character is ignored. Each character
+    /// advances by its display width, characters with no width of their own (combining marks,
+    /// controls) are skipped, and the text is clipped at the canvas edge without splitting a
+    /// wide character.
     pub fn set_str(&mut self, local_x: u16, local_y: u16, text: &str, style: Cell) -> u16 {
         if local_y >= self.height {
             return 0;
@@ -117,6 +146,8 @@ impl<'a> Canvas<'a> {
         x.saturating_sub(local_x)
     }
 
+    /// A canvas over part of this one: `width` × `height` at `(local_x, local_y)`, clipped to
+    /// this canvas.
     pub fn subcanvas(&mut self, local_x: u16, local_y: u16, width: u16, height: u16) -> Canvas<'_> {
         let x = self.x.saturating_add(local_x);
         let y = self.y.saturating_add(local_y);
@@ -136,14 +167,17 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// The canvas's top left, in buffer coordinates.
     pub fn origin(&self) -> (u16, u16) {
         (self.x, self.y)
     }
 
+    /// The area this canvas covers, in buffer coordinates.
     pub fn global_area(&self) -> Area {
         Area::new(self.x, self.y, self.width, self.height)
     }
 
+    /// The whole underlying buffer, bypassing the canvas's clipping.
     pub fn buffer_mut(&mut self) -> &mut Buffer {
         self.buffer
     }

@@ -3,13 +3,31 @@ use crossterm::style::Color;
 use crate::widgets::interpolate_color;
 use crate::{Bar, Canvas, Cell, LayoutOptions, Text, Widget};
 
+/// How a [`StatusBar`] or [`SparklineGraph`](crate::SparklineGraph) shows its value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StatusType {
+    /// As a percentage, such as `42%`.
     #[default]
     Percentage,
+    /// As a value out of a total, such as `21/50`. See [`StatusBar::out_of`].
     Actual,
 }
 
+/// A one-row gauge: a label, a [`Bar`](crate::Bar), and the value.
+///
+/// The label and value columns have fixed widths, and the bar takes the rest. If the space is
+/// too narrow for all three, the gauge shows `error:1` instead.
+///
+/// ```
+/// use auxior::{StatusBar, StatusType, Text};
+///
+/// let memory = StatusBar::new()
+///     .label(Text::new("MEM"))
+///     .fill(0.42)
+///     .status_type(StatusType::Actual)
+///     .out_of(16.0);
+/// # let _ = memory;
+/// ```
 pub struct StatusBar {
     layout: LayoutOptions,
     bg: Color,
@@ -31,6 +49,7 @@ impl Default for StatusBar {
 }
 
 impl StatusBar {
+    /// An empty gauge showing a percentage.
     pub fn new() -> Self {
         StatusBar {
             layout: LayoutOptions::default(),
@@ -48,81 +67,99 @@ impl StatusBar {
         }
     }
 
+    /// Sets the label shown on the left.
     pub fn label(mut self, label: Text) -> Self {
         self.label = Some(label);
         self
     }
 
+    /// Sets how the value is shown.
     pub fn status_type(mut self, status_type: StatusType) -> Self {
         self.status_type = status_type;
         self
     }
 
+    /// Sets the width of the label column.
     pub fn min_len_label(mut self, min_len: u16) -> Self {
         self.min_len_label = min_len;
         self
     }
 
+    /// Sets the narrowest the bar can be.
     pub fn min_len_bar(mut self, min_len: u16) -> Self {
         self.min_len_bar = min_len;
         self
     }
 
+    /// Sets the width of the value column.
     pub fn min_len_status(mut self, min_len: u16) -> Self {
         self.min_len_status = min_len;
         self
     }
 
+    /// Sets the color of the unfilled part of the bar.
     pub fn bg(mut self, bg: Color) -> Self {
         self.bg = bg;
         self
     }
 
+    /// Sets how full the gauge is, from `0.0` to `1.0`. Values outside that range are clamped.
     pub fn fill(mut self, fill: f32) -> Self {
         self.fill = fill.clamp(0.0, 1.0);
         self
     }
 
+    /// Sets the total an [`Actual`](StatusType::Actual) value is out of. The value shown is the
+    /// fill times this total.
     pub fn out_of(mut self, out_of: f32) -> Self {
         self.out_of = Some(out_of);
         self
     }
 
+    /// Sets the bar color at the empty end.
     pub fn start_color(mut self, color: Color) -> Self {
         self.start_color = color;
         self
     }
 
+    /// Sets the bar color at the full end.
     pub fn end_color(mut self, color: Color) -> Self {
         self.end_color = color;
         self
     }
 
+    /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
         self
     }
 
+    /// Sets the row offset within the container.
     pub fn y(mut self, n: u16) -> Self {
         self.layout.y = Some(n);
         self
     }
 
+    /// Sets a fixed width in columns.
     pub fn width(mut self, n: u16) -> Self {
         self.layout.width = Some(n);
         self
     }
 
+    /// Sets a fixed height in rows.
     pub fn height(mut self, n: u16) -> Self {
         self.layout.height = Some(n);
         self
     }
 
+    /// Sets the share of leftover space this takes in a [`Flex`](crate::Flex) or
+    /// [`Grid`](crate::Grid), relative to its flexible siblings.
     pub fn flex(mut self, n: u16) -> Self {
         self.layout.flex = Some(n);
         self
     }
 
+    /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }

@@ -1,12 +1,11 @@
 use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-// Identifies a focusable widget from one frame to the next.
-//
-// Widgets are rebuilt every frame, so focus is matched by id rather than by
-// widget. An unnamed widget is identified by its position among the unnamed
-// focusable widgets drawn that frame; give a widget a name with
-// [`FocusId::named`] if widgets drawn before it can appear or disappear.
+/// Identifies a focusable widget from one frame to the next.
+///
+/// Widgets are rebuilt every frame, so focus is matched by id. A widget without a name is
+/// identified by its position among the unnamed focusable widgets drawn that frame. Name it
+/// with [`FocusId::named`] if widgets drawn before it can appear or disappear.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FocusId(Kind);
 
@@ -18,6 +17,7 @@ enum Kind {
 }
 
 impl FocusId {
+    /// An id derived from `name`. The same name always gives the same id.
     pub fn named(name: &str) -> Self {
         let mut hasher = DefaultHasher::new();
         name.hash(&mut hasher);
@@ -43,13 +43,19 @@ thread_local! {
     static FOCUS: RefCell<FocusState> = RefCell::new(FocusState::default());
 }
 
-// Which widget receives keyboard input. Tab and Shift+Tab move focus through
-// widgets in the order they were drawn; clicking a focusable widget focuses it.
+/// Which widget receives keyboard input.
+///
+/// Tab and Shift+Tab move focus through focusable widgets in the order they were drawn, and
+/// clicking a focusable widget focuses it. These functions move focus from code and make your
+/// own widgets focusable.
 pub struct Focus;
 
 impl Focus {
-    // Registers a focusable widget for this frame and reports whether it holds
-    // focus. Call once per frame from the widget's render, in draw order.
+    /// Registers a focusable widget for this frame, and returns its id and whether it holds
+    /// focus.
+    ///
+    /// Call it once per frame from the widget's render, in draw order. Pass a named id for a
+    /// widget that is not always drawn.
     pub fn register(id: Option<FocusId>) -> (FocusId, bool) {
         FOCUS.with(|state| {
             let mut state = state.borrow_mut();
@@ -65,18 +71,22 @@ impl Focus {
         })
     }
 
+    /// The focused widget, if any.
     pub fn focused() -> Option<FocusId> {
         FOCUS.with(|state| state.borrow().focused)
     }
 
+    /// Whether widget `id` holds focus.
     pub fn is_focused(id: FocusId) -> bool {
         Self::focused() == Some(id)
     }
 
+    /// Moves focus to widget `id`.
     pub fn set(id: FocusId) {
         FOCUS.with(|state| state.borrow_mut().focused = Some(id));
     }
 
+    /// Leaves no widget focused.
     pub fn clear() {
         FOCUS.with(|state| state.borrow_mut().focused = None);
     }

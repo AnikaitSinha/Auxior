@@ -200,6 +200,11 @@ fn restore_terminal() -> io::Result<()> {
     screen.and(raw)
 }
 
+/// The terminal Auxior draws to.
+///
+/// Creating one enters raw mode and the alternate screen and hides the cursor; dropping it
+/// restores all of that. [`App`](crate::App) creates and owns one, so most applications never
+/// use it directly.
 pub struct Terminal {
     width: u16,
     height: u16,
@@ -208,6 +213,12 @@ pub struct Terminal {
 }
 
 impl Terminal {
+    /// Takes over the terminal.
+    ///
+    /// # Errors
+    ///
+    /// Fails if raw mode or the alternate screen cannot be entered, for example when standard
+    /// output is not a terminal.
     pub fn new() -> io::Result<Self> {
         install_panic_hook();
 
@@ -236,20 +247,27 @@ impl Terminal {
         })
     }
 
+    /// Width in columns, as of the last resize.
     pub fn width(&self) -> u16 {
         self.width
     }
 
+    /// Height in rows, as of the last resize.
     pub fn height(&self) -> u16 {
         self.height
     }
 
+    /// Width and height, as of the last resize.
     pub fn size(&self) -> (u16, u16) {
         (self.width, self.height)
     }
 
-    // Ask the terminal to report mouse events. Turned off again automatically
-    // when the terminal is restored, including after a panic.
+    /// Asks the terminal to report mouse events. Turned off again when the terminal is
+    /// restored, including after a panic.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the request cannot be written to the terminal.
     pub fn enable_mouse_capture(&mut self) -> io::Result<()> {
         // Flag first, so a partially written enable is still undone.
         MOUSE_CAPTURED.store(true, Ordering::SeqCst);
@@ -261,7 +279,12 @@ impl Terminal {
         self.height = height;
     }
 
-    // Create a buffer, do the rendering, flush to screen.
+    /// Draws one frame outside the [`App`](crate::App) event loop: `f` fills a fresh buffer the
+    /// size of the terminal, which is then written out in full.
+    ///
+    /// # Errors
+    ///
+    /// Fails if writing to the terminal fails.
     pub fn draw<F>(&mut self, f: F) -> io::Result<()>
     where
         F: FnOnce(&mut Buffer),
