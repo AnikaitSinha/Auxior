@@ -9,6 +9,9 @@ pub mod engine {
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/engine/overview.md"))]
     pub mod overview {}
 
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/engine/app.md"))]
+    pub mod app {}
+
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/engine/frame-loop.md"))]
     pub mod frame_loop {}
 

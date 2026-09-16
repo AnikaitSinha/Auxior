@@ -3,16 +3,13 @@
 [`App::run`](crate::App::run) is the heart of every Auxior application. This page
 walks through what it does, in the order it does it.
 
-## Starting up
+## Before the loop starts
 
-[`App::with_config`](crate::App::with_config) prepares everything the loop needs:
-
-1. It creates a [`Terminal`](crate::Terminal), which switches the terminal into
-   raw mode and the alternate screen (see [the terminal](terminal.md)).
-2. If [`AppConfig::mouse_capture`](crate::AppConfig::mouse_capture()) is on, it asks
-   the terminal to report mouse events.
-3. It allocates **two buffers** the size of the terminal: *current*, which the
-   next frame is drawn into, and *previous*, which holds what is on screen now.
+By the time `run` is called, [`App::with_config`](crate::App::with_config) has
+already taken over the terminal and allocated two buffers the size of the screen:
+*current*, which the next frame is drawn into, and *previous*, which holds what the
+terminal shows now. [The App](app.md) covers that setup, the options, and the
+events and return values described briefly below.
 
 ## Waiting for the next frame
 

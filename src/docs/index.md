@@ -11,7 +11,8 @@ each one links to the API reference for the types it discusses.
 
 How Auxior runs underneath your code.
 
-- [Overview](engine/overview.md): the design, and one frame from start to finish
+- [Overview](engine/overview.md): what a terminal can do, the idea behind Auxior, and a first app line by line
+- [The App](engine/app.md): creating an app, its options, the events it delivers, and how it ends
 - [The frame loop](engine/frame-loop.md): what `App::run` does each frame
 - [Cells and buffers](engine/cells-and-buffers.md): the grid everything is drawn into
 - [From buffer to screen](engine/rendering.md): dirty regions, diffing and flushing
