@@ -85,5 +85,6 @@ explains how they're placed.
 
 With [`dirty(false)`](crate::Div::dirty), a div drawn through
 `render_with_context` keeps what it drew last frame instead of redrawing, and
-redraws only the children that are dirty themselves. See
+redraws only the children that are dirty themselves. This only takes effect when
+the app turns on [`AppConfig::incremental`](crate::AppConfig::incremental()). See
 [from buffer to screen](../engine/rendering.md#incremental-drawing).

@@ -81,5 +81,5 @@ first.
 
 ## Notes
 
-- **Gradients need RGB colors**, as with [`Bar`](../widgets/bar.md).
+- Named colors, palette values and RGB colors all blend; only `Color::Reset` cannot.
 - The gauge is one row tall, and draws only its first row.

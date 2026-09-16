@@ -157,36 +157,33 @@ impl Widget for Grid {
     }
 
     fn default_height(&self) -> u16 {
-        let cols = self.cols.max(1) as usize;
         if self.children.is_empty() {
             return 1;
         }
 
-        let rows = self.children.len().div_ceil(cols);
-        let row_gaps = self.row_gap.saturating_mul(rows.saturating_sub(1) as u16);
-        let slots = row_slots(&self.children, cols);
-        let content: u16 = slots
-            .iter()
-            .map(|slot| slot.explicit.unwrap_or(slot.intrinsic))
-            .sum();
+        let cols = self.cols.max(1) as usize;
+        let col_widths = column_widths(&self.children, cols, self.col_gap, None);
+        track_total(&row_slots(&self.children, cols, &col_widths), self.row_gap)
+    }
 
-        row_gaps.saturating_add(content)
+    fn height_for_width(&self, width: u16) -> u16 {
+        if self.children.is_empty() {
+            return 1;
+        }
+
+        let width = self.layout.width.unwrap_or(width).min(width);
+        let cols = self.cols.max(1) as usize;
+        let col_widths = column_widths(&self.children, cols, self.col_gap, Some(width));
+        track_total(&row_slots(&self.children, cols, &col_widths), self.row_gap)
     }
 
     fn default_width(&self) -> u16 {
-        let cols = self.cols.max(1) as usize;
         if self.children.is_empty() {
             return 1;
         }
 
-        let col_gaps = self.col_gap.saturating_mul(cols.saturating_sub(1) as u16);
-        let slots = column_slots(&self.children, cols);
-        let content: u16 = slots
-            .iter()
-            .map(|slot| slot.explicit.unwrap_or(slot.intrinsic))
-            .sum();
-
-        col_gaps.saturating_add(content)
+        let cols = self.cols.max(1) as usize;
+        track_total(&column_slots(&self.children, cols), self.col_gap)
     }
 }
 
@@ -210,18 +207,49 @@ impl TrackSlot {
 fn column_slots(children: &[Box<dyn Widget>], cols: usize) -> Vec<TrackSlot> {
     let mut slots = vec![TrackSlot::new(); cols];
     for (i, child) in children.iter().enumerate() {
-        merge_child_into_track(&mut slots[i % cols], child.as_ref(), TrackAxis::Width);
+        merge_child_into_track(&mut slots[i % cols], child.as_ref(), TrackAxis::Width, 0);
     }
     slots
 }
 
-fn row_slots(children: &[Box<dyn Widget>], cols: usize) -> Vec<TrackSlot> {
+fn row_slots(children: &[Box<dyn Widget>], cols: usize, col_widths: &[u16]) -> Vec<TrackSlot> {
     let rows = children.len().div_ceil(cols);
     let mut slots = vec![TrackSlot::new(); rows];
     for (i, child) in children.iter().enumerate() {
-        merge_child_into_track(&mut slots[i / cols], child.as_ref(), TrackAxis::Height);
+        let width = col_widths.get(i % cols).copied().unwrap_or(0);
+        merge_child_into_track(
+            &mut slots[i / cols],
+            child.as_ref(),
+            TrackAxis::Height,
+            width,
+        );
     }
     slots
+}
+
+// The width of each column when the grid itself is `width` wide, or each
+// column's natural width when that isn't known yet.
+fn column_widths(
+    children: &[Box<dyn Widget>],
+    cols: usize,
+    gap: u16,
+    width: Option<u16>,
+) -> Vec<u16> {
+    let slots = column_slots(children, cols);
+    match width {
+        Some(width) => compute_track_sizes(&slots, width, gap),
+        None => slots
+            .iter()
+            .map(|slot| slot.explicit.unwrap_or(slot.intrinsic))
+            .collect(),
+    }
+}
+
+fn track_total(slots: &[TrackSlot], gap: u16) -> u16 {
+    let gaps = gap.saturating_mul(slots.len().saturating_sub(1) as u16);
+    slots.iter().fold(gaps, |total, slot| {
+        total.saturating_add(slot.explicit.unwrap_or(slot.intrinsic))
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,12 +258,26 @@ enum TrackAxis {
     Height,
 }
 
-fn merge_child_into_track(slot: &mut TrackSlot, child: &dyn Widget, axis: TrackAxis) {
+fn merge_child_into_track(
+    slot: &mut TrackSlot,
+    child: &dyn Widget,
+    axis: TrackAxis,
+    // The width the child's column will have, for measuring its height.
+    available: u16,
+) {
     let layout = child.layout();
     let explicit = match axis {
         TrackAxis::Width => layout.width,
         TrackAxis::Height => layout.height,
     };
+
+    let intrinsic = match axis {
+        TrackAxis::Width => child.default_width(),
+        TrackAxis::Height => {
+            child.height_for_width(layout.width.unwrap_or(available).min(available))
+        }
+    };
+    slot.intrinsic = slot.intrinsic.max(intrinsic);
 
     if let Some(size) = explicit {
         slot.explicit = Some(slot.explicit.unwrap_or(0).max(size));
@@ -244,14 +286,7 @@ fn merge_child_into_track(slot: &mut TrackSlot, child: &dyn Widget, axis: TrackA
 
     if let Some(weight) = layout.flex.filter(|&w| w > 0) {
         slot.flex = Some(slot.flex.unwrap_or(0).max(weight));
-        return;
     }
-
-    let intrinsic = match axis {
-        TrackAxis::Width => child.default_width(),
-        TrackAxis::Height => child.default_height(),
-    };
-    slot.intrinsic = slot.intrinsic.max(intrinsic);
 }
 
 fn compute_track_sizes(slots: &[TrackSlot], main_limit: u16, gap: u16) -> Vec<u16> {
@@ -319,7 +354,11 @@ fn layout_grid(
     let rows = children.len().div_ceil(cols);
 
     let col_widths = compute_track_sizes(&column_slots(children, cols), area.width, col_gap);
-    let row_heights = compute_track_sizes(&row_slots(children, cols), area.height, row_gap);
+    let row_heights = compute_track_sizes(
+        &row_slots(children, cols, &col_widths),
+        area.height,
+        row_gap,
+    );
 
     let mut x_offsets = vec![area.x; cols];
     if cols > 1 {
@@ -483,5 +522,34 @@ mod tests {
         let mut buf = Buffer::new(0, 0);
         let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 0, 0));
         grid.render(&mut canvas);
+    }
+
+    #[test]
+    fn rows_are_measured_at_their_column_width() {
+        use crate::Text;
+
+        // Two flexible columns share the width, 10 each.
+        let grid = Grid::new()
+            .cols(2)
+            .child(Text::new("one two three four").wrap(true).flex(1))
+            .child(Text::new("x").flex(1));
+
+        // The paragraph wraps onto two rows in a 10-wide column.
+        assert_eq!(grid.height_for_width(20), 2);
+
+        let mut buf = crate::Buffer::new(20, 3);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 20, 3));
+        Grid::new()
+            .cols(2)
+            .child(Text::new("one two three four").wrap(true).flex(1))
+            .child(Text::new("x").flex(1))
+            .render(&mut canvas);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'o');
+        assert_eq!(
+            buf.get(0, 1).unwrap().ch,
+            't',
+            "the wrapped rest of the paragraph"
+        );
     }
 }

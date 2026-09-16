@@ -53,7 +53,6 @@ Every child fills its cell.
 
 - A child can't span several cells. Nest a [`Flex`](crate::Flex) or another grid
   for irregular layouts.
-- Rows are sized from each child's natural height, not its height at the column's
-  width, so wrapped text in a grid gets one row per line of source text. Give such
-  rows a fixed height.
+- Rows are measured at the width their column will have, so wrapped text in a
+  grid gets as many rows as it needs.
 - A grid fills the whole area it's given, unless it has a fixed size.

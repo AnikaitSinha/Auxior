@@ -81,6 +81,23 @@ impl List {
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }
+
+    // The rows the elements need, at `width` if it is known. Never fewer than
+    // `min_height`, so a container gives the list the room it insists on.
+    fn rows(&self, width: Option<u16>) -> u16 {
+        self.elements
+            .iter()
+            .fold(0_u16, |total, element| {
+                let rows = match width {
+                    Some(width) => {
+                        element.height_for_width(element.layout().width.unwrap_or(width).min(width))
+                    }
+                    None => element.default_height(),
+                };
+                total.saturating_add(rows)
+            })
+            .max(self.min_height)
+    }
 }
 
 impl Widget for List {
@@ -98,8 +115,10 @@ impl Widget for List {
         let mut row: u16 = 0;
         for element in &self.elements {
             if row < height {
-                let item_h = element.default_height().min(height.saturating_sub(row));
                 let item_w = element.layout().width.unwrap_or(width).min(width);
+                let item_h = element
+                    .height_for_width(item_w)
+                    .min(height.saturating_sub(row));
 
                 let mut row_canvas = canvas.subcanvas(0, row, item_w, item_h);
                 element.render(&mut row_canvas);
@@ -115,11 +134,20 @@ impl Widget for List {
     }
 
     fn default_height(&self) -> u16 {
-        1
+        self.rows(None)
+    }
+
+    fn height_for_width(&self, width: u16) -> u16 {
+        self.rows(Some(width))
     }
 
     fn default_width(&self) -> u16 {
-        self.min_len
+        self.elements
+            .iter()
+            .map(|element| element.default_width())
+            .max()
+            .unwrap_or(0)
+            .max(self.min_len)
     }
 }
 
@@ -190,5 +218,50 @@ mod tests {
         let mut buf = Buffer::new(0, 0);
         let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 0, 0));
         list.render(&mut canvas);
+    }
+
+    #[test]
+    fn asks_for_the_rows_its_elements_need() {
+        let list = List::new()
+            .add_element(Text::new("apples"))
+            .add_element(Text::new("pears"))
+            .add_element(Text::new("plums"));
+
+        assert_eq!(list.default_height(), 3);
+        assert_eq!(list.height_for_width(20), 3);
+        // Never fewer rows than it insists on before drawing anything.
+        assert_eq!(
+            List::new().add_element(Text::new("one")).default_height(),
+            2
+        );
+    }
+
+    #[test]
+    fn wrapped_elements_get_their_wrapped_rows() {
+        let list = List::new().add_element(Text::new("aaa bbb ccc").wrap(true));
+
+        assert_eq!(list.height_for_width(6), 3);
+
+        // Six columns is the narrowest a list draws in by default.
+        let buf = render_list(&list, 6, 3);
+        assert_eq!(buf.get(0, 2).unwrap().ch, 'c');
+    }
+
+    #[test]
+    fn draws_inside_a_div() {
+        use crate::{Area, Canvas, Div};
+
+        let mut buf = crate::Buffer::new(12, 6);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 12, 6));
+        Div::new()
+            .child(
+                List::new()
+                    .add_element(Text::new("apples"))
+                    .add_element(Text::new("pears")),
+            )
+            .render(&mut canvas);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, 'a');
+        assert_eq!(buf.get(0, 1).unwrap().ch, 'p');
     }
 }

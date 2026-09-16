@@ -284,11 +284,11 @@ gives each one a smaller canvas for its own space, and each child draws into tha
 While drawing, the button also records "the `+` key, or a click on these cells,
 runs this handler", ready for the next frame's input.
 
-The `_with_context` part matters: it records in `ctx` that this area of the screen
-was redrawn. Auxior only compares redrawn areas with the previous frame, so a
-change in an area nobody recorded would never reach the terminal. Drawing the
-top-level widget this way records the whole screen. See
-[the frame loop](frame-loop.md#the-one-rule-mark-what-you-draw).
+The `_with_context` part records in `ctx` which part of the screen this drawing
+covered. Auxior compares the whole screen by default, so everything you draw
+reaches the terminal either way; the record matters only for apps that turn on
+incremental drawing, where comparisons are limited to the areas recorded. See
+[the frame loop](frame-loop.md#marking-what-you-draw).
 
 ### 7. Keep going
 

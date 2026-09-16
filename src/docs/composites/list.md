@@ -29,7 +29,7 @@ assert_eq!(buf.get(0, 1).unwrap().ch, 'p');
 
 Elements are drawn in order, each directly below the last, with no gap:
 
-- each element takes as many rows as it has lines;
+- each element takes the rows it needs, including the extra rows of a wrapped element;
 - each is as wide as the list, unless it has a fixed width;
 - any `x` or `y` set on an element is ignored;
 - elements that don't fit below the bottom aren't drawn.
@@ -51,11 +51,11 @@ assert_eq!(buf.get(0, 0).unwrap().ch, ' ');
 
 ## Size
 
-A list reports a natural width of `min_len` and a natural height of **1**,
-however many elements it has. In a [`Div`](crate::Div) or a `Flex` column, that
-means it's given a single row — less than its default minimum, so it draws
-nothing. Always give a list a `height` or a `flex` weight.
+A list asks for the rows its elements need — their wrapped rows, at the width it
+is given — and never fewer than [`min_height`](crate::List::min_height()), so a
+container gives it enough room to draw. Its natural width is its widest element,
+and at least [`min_len`](crate::List::min_len()).
 
-For the same reason, a list can't scroll inside a
-[`ScrollView`](crate::ScrollView). For a scrollable list, put `Text` lines in a
-`Flex` column instead.
+So a list works inside a [`Div`](crate::Div), a `Flex` column or a
+[`ScrollView`](crate::ScrollView) without being told a size, and a `height` or a
+`flex` weight still overrides what it asks for.

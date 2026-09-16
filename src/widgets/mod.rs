@@ -9,7 +9,7 @@ mod scroll_view;
 mod text;
 mod widget;
 
-pub use bar::{Bar, interpolate_color};
+pub use bar::{Bar, Direction, interpolate_color};
 pub use button::{BorderAlign, BorderSide, Button};
 pub use div::{Div, DivOptions};
 pub use flex::{Flex, FlexDirection};

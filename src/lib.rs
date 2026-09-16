@@ -75,6 +75,6 @@ pub use core::{
     KeyBinding, RenderContext, Terminal,
 };
 pub use widgets::{
-    Bar, BorderAlign, BorderSide, Button, Div, DivOptions, Flex, FlexDirection, Grid, Heading,
-    LayoutOptions, Markdown, ScrollGraph, ScrollState, ScrollView, Text, Widget,
+    Bar, BorderAlign, BorderSide, Button, Direction, Div, DivOptions, Flex, FlexDirection, Grid,
+    Heading, LayoutOptions, Markdown, ScrollGraph, ScrollState, ScrollView, Text, Widget,
 };

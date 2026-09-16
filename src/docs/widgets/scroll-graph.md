@@ -105,5 +105,5 @@ twice `window`.
 
 ## Notes
 
-- **Gradients need RGB colors**, as with [`Bar`](bar.md).
+- Named colors, palette values and RGB colors all blend; only `Color::Reset` cannot.
 - Natural size: 8 × 1. Give a graph a size or a flex weight.

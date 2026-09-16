@@ -83,7 +83,12 @@ fn draw_diff_overlay(buf: &mut auxior::Buffer, stats: &FrameStats) {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut app = App::with_config(AppConfig::new().target_fps(TARGET_FPS).default_quit_keys())?;
+    let mut app = App::with_config(
+        AppConfig::new()
+            .target_fps(TARGET_FPS)
+            .default_quit_keys()
+            .incremental(true),
+    )?;
 
     let mut fps_window_start = Instant::now();
     let mut frames_in_window = 0_u64;

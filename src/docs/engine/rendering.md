@@ -30,13 +30,19 @@ part of the screen. So Auxior only compares the parts that were drawn.
 
 ### Dirty regions
 
-A [`RenderContext`](crate::RenderContext) collects *dirty regions*: rectangles
-that were redrawn this frame. Only cells inside a dirty region are compared.
+By default Auxior compares **every cell** with the previous frame. Comparing cells
+is cheap — it's sending them that costs — so this is the right default: whatever
+you draw appears, with no bookkeeping to get wrong.
 
-Widgets mark regions through
-[`Widget::render_with_context`](crate::Widget::render_with_context). Its default
-implementation draws the widget and marks the widget's whole canvas, so drawing
-the top-level widget this way marks the entire screen.
+For very large screens that change very little, an app can turn on
+[`AppConfig::incremental`](crate::AppConfig::incremental()). Auxior then compares
+only the *dirty regions*: rectangles recorded as redrawn this frame, collected by
+the [`RenderContext`](crate::RenderContext).
+
+Widgets record their area through
+[`Widget::render_with_context`](crate::Widget::render_with_context), whose default
+implementation draws the widget and records its whole canvas — so drawing the
+top-level widget that way records the entire screen.
 
 Here is the difference, using a render context directly:
 
@@ -48,18 +54,18 @@ let mut current = Buffer::new(10, 1);
 let mut ctx = RenderContext::new(&previous);
 let area = Area::new_from_buffer(&current);
 
-// Drawn with `render`: the buffer changed, but no region was marked.
+// Drawn with `render`: the buffer changed, but no region was recorded.
 Text::new("hi").render(&mut Canvas::new(&mut current, area));
 assert!(ctx.diff_coords(&current).is_empty());
 
-// Drawn with `render_with_context`: its area is marked, so the change is found.
+// Drawn with `render_with_context`: its area is recorded, so the change is found.
 Text::new("hi").render_with_context(&mut Canvas::new(&mut current, area), &mut ctx);
 assert_eq!(ctx.diff_coords(&current), vec![(0, 0), (1, 0)]);
 ```
 
-Two situations skip dirty regions and compare everything, by setting
-[`force_full`](crate::RenderContext::force_full): the first frame, and the frame
-after a resize. You can set it yourself in the frame callback when in doubt.
+With incremental drawing off, the frame loop sets
+[`force_full`](crate::RenderContext::force_full), and the first frame and the frame
+after a resize always compare everything.
 
 ### Diffing
 
@@ -137,9 +143,10 @@ saved; `flushed_cells` shows how much of the screen really changed. The
 
 ## Incremental drawing
 
-Marking the whole screen dirty is simple, and comparing a screenful of cells is
-fast, so most apps never need more. For very large or busy screens, a
-[`Div`](crate::Div) can skip redrawing parts that haven't changed.
+Comparing a screenful of cells is fast, so most apps never need more. For very
+large or busy screens, turning on
+[`AppConfig::incremental`](crate::AppConfig::incremental()) lets a
+[`Div`](crate::Div) skip redrawing parts that haven't changed.
 
 Mark a div not dirty with [`Div::dirty(false)`](crate::Div::dirty). When it's
 drawn with `render_with_context`, it:

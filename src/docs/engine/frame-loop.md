@@ -87,17 +87,21 @@ Your callback receives five arguments:
 | `ctx` | `&mut RenderContext` | Where you record which areas you redrew. |
 | `stats` | `&FrameStats` | Numbers about the previous frame; see [`FrameStats`](crate::FrameStats). |
 
-### The one rule: mark what you draw
+### Marking what you draw
 
-After your callback returns, Auxior only compares the areas recorded in `ctx`
-with the previous frame. **A change outside every recorded area is never sent to
-the terminal.** It isn't lost — it's in the buffer — but the screen won't show
-it until something marks that area.
+After your callback returns, Auxior compares **the whole screen** with the
+previous frame and sends the cells that differ. Everything you draw therefore
+reaches the terminal, however you drew it.
 
-Drawing a widget with
-[`render_with_context`](crate::Widget::render_with_context) records its area for
-you, and the top-level widget's area covers everything inside it, so the normal
-pattern needs no thought:
+Widgets drawn with
+[`render_with_context`](crate::Widget::render_with_context) also *record* the area
+they covered, in `ctx`. That record is what
+[`AppConfig::incremental`](crate::AppConfig::incremental()) uses: with incremental
+drawing on, only the recorded areas are compared, which saves work on very large
+screens that change very little — at the cost of a rule to remember, since
+anything drawn without recording its area then never reaches the screen.
+
+The usual pattern needs no thought either way:
 
 ```rust,no_run
 # use auxior::{App, AppConfig, Area, Canvas, Cell, ControlFlow, Div, Text, Widget};
@@ -107,35 +111,34 @@ app.run(|buf, _previous, _events, ctx, _stats| {
     let area = Area::new_from_buffer(buf);
     Div::new()
         .child(Text::new("hello"))
-        .render_with_context(&mut Canvas::new(buf, area), ctx); // Marks the whole screen.
+        .render_with_context(&mut Canvas::new(buf, area), ctx);
     ControlFlow::Continue
 })?;
 # Ok::<(), std::io::Error>(())
 ```
 
-Draw with plain [`render`](crate::Widget::render), or straight into the buffer,
-and you must record the area yourself with
+When you draw straight into the buffer and want incremental drawing to see it,
+record the area yourself with
 [`RenderContext::mark_dirty`](crate::RenderContext::mark_dirty):
 
 ```rust,no_run
 use auxior::{App, AppConfig, Area, Cell, ControlFlow};
 
-let mut app = App::with_config(AppConfig::new().default_quit_keys())?;
+let mut app = App::with_config(AppConfig::new().default_quit_keys().incremental(true))?;
 let mut frames = 0u64;
 
 app.run(|buf, _previous, _events, ctx, _stats| {
     frames += 1;
     let spinner = ['|', '/', '-', '\\'][(frames / 8 % 4) as usize];
     buf.set(0, 0, Cell::new(spinner));
-    // Written straight into the buffer, so record the cell that changed.
     ctx.mark_dirty(Area::new(0, 0, 1, 1));
     ControlFlow::Continue
 })?;
 # Ok::<(), std::io::Error>(())
 ```
 
-Setting [`RenderContext::force_full`](crate::RenderContext::force_full) to `true`
-compares every cell instead. That is always correct, just slower.
+[`RenderContext::force_full`](crate::RenderContext::force_full) forces a whole-screen
+comparison for one frame, whatever the setting.
 
 ## Sending the frame
 

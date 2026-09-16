@@ -498,29 +498,9 @@ fn draw_horizontal_border(
         x = x.saturating_add(width).saturating_add(1);
     }
 
-    if side == BorderSide::Top {
-        if let Some(title) = title {
-            let title_x = title.layout().x.unwrap_or(2).max(x);
-            if title_x > 0 && title_x < w {
-                canvas.set(title_x - 1, y, Cell::new(' '));
-                occupied[(title_x - 1) as usize] = true;
-            }
-
-            let max_title_width = w.saturating_sub(title_x).saturating_sub(1);
-            let title_width = title.default_width().min(max_title_width);
-            if title_width > 0 {
-                title.render(&mut canvas.subcanvas(title_x, y, title_width, 1));
-                mark_horizontal(&mut occupied, title_x, title_width);
-
-                let after_title = title_x.saturating_add(title_width);
-                if after_title + 1 < w.saturating_sub(1) {
-                    canvas.set(after_title, y, Cell::new(' '));
-                    occupied[after_title as usize] = true;
-                }
-            }
-        }
-    }
-
+    // Worked out before the title is drawn, so a long title is shortened
+    // instead of running into them.
+    let mut end_buttons = Vec::new();
     let mut end_x = w.saturating_sub(2);
     for button in buttons
         .iter()
@@ -535,9 +515,40 @@ fn draw_horizontal_border(
         }
 
         let x = end_x.saturating_sub(width.saturating_sub(1));
+        end_buttons.push((button, x, width));
+        end_x = x.saturating_sub(2);
+    }
+    // Where the leftmost end-aligned button starts. With no buttons there is
+    // nothing to leave room for, and the title runs to the corner as before.
+    let end_edge = end_buttons.last().map(|(_, x, _)| *x).unwrap_or(w);
+
+    if side == BorderSide::Top {
+        if let Some(title) = title {
+            let title_x = title.layout().x.unwrap_or(2).max(x);
+            if title_x > 0 && title_x < w {
+                canvas.set(title_x - 1, y, Cell::new(' '));
+                occupied[(title_x - 1) as usize] = true;
+            }
+
+            // Leave a blank border cell between the title and whatever follows.
+            let max_title_width = end_edge.saturating_sub(title_x).saturating_sub(1);
+            let title_width = title.default_width().min(max_title_width);
+            if title_width > 0 {
+                title.render(&mut canvas.subcanvas(title_x, y, title_width, 1));
+                mark_horizontal(&mut occupied, title_x, title_width);
+
+                let after_title = title_x.saturating_add(title_width);
+                if after_title + 1 < w.saturating_sub(1) {
+                    canvas.set(after_title, y, Cell::new(' '));
+                    occupied[after_title as usize] = true;
+                }
+            }
+        }
+    }
+
+    for (button, x, width) in end_buttons {
         button.render(&mut canvas.subcanvas(x, y, width, 1));
         mark_horizontal(&mut occupied, x, width);
-        end_x = x.saturating_sub(2);
     }
 
     for x in 1..w.saturating_sub(1) {
@@ -1122,5 +1133,23 @@ mod tests {
         // The unchanged first child still takes row 0, then the flow gap.
         assert_eq!(buf.get(0, 0).unwrap().ch, ' ');
         assert_eq!(buf.get(0, 2).unwrap().ch, 'x');
+    }
+
+    #[test]
+    fn a_long_title_stops_before_an_end_aligned_button() {
+        let mut buf = Buffer::new(24, 3);
+        let mut canvas = Canvas::new(&mut buf, Area::new(0, 0, 24, 3));
+        Div::new()
+            .border(true)
+            .title(Text::new("A rather long title"))
+            .border_button(
+                Button::border_button("x")
+                    .side(BorderSide::Top)
+                    .align(BorderAlign::End),
+            )
+            .render(&mut canvas);
+
+        let top: String = (0..24).map(|x| buf.get(x, 0).unwrap().ch).collect();
+        assert_eq!(top, "╭ A rather long tit ╮x╭╮");
     }
 }

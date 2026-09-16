@@ -70,6 +70,7 @@ heights, and a [`Div`](crate::Div) adds its border and padding.
 | `Markdown` | Its rendered rows. |
 | `Flex` | Column: the children's heights plus gaps. Row: the tallest child. |
 | `Div` | Its children's flow, plus border, padding and title. |
+| `Grid` | Its rows, measured at their column widths, plus gaps. |
 | `ScrollView` | Its content's height. |
 | Everything else | Its `default_height`. |
 
@@ -183,9 +184,8 @@ Every column is a *track* sized from all the children in it, and so is every row
 Leftover space is shared between flexible tracks exactly as in a flex, and gaps
 between columns and rows come off first.
 
-Grid rows are sized from each child's `default_height`, not its height at the
-column's width, so wrapped text in a grid gets one row per line of source text.
-Give such rows a fixed height.
+Columns are sized first, and each row is then measured at its column's width, so
+wrapped text in a grid gets as many rows as it needs.
 
 ## Putting it together
 

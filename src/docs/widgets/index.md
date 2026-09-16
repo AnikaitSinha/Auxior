@@ -34,6 +34,6 @@ read when placing them (see [layout](../concepts/layout.md)):
 
 Every widget can be drawn with `.render(&mut canvas)`, or with
 `.render_with_context(&mut canvas, ctx)` from the [`Widget`](crate::Widget) trait,
-which also marks its area for the renderer. The top-level widget of a frame should
-always use `render_with_context`; see
-[the frame loop](../engine/frame-loop.md).
+which also records the area it covered. Either reaches the screen; the record
+matters only for apps that turn on incremental drawing. See
+[the frame loop](../engine/frame-loop.md#marking-what-you-draw).

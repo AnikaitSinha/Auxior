@@ -49,10 +49,11 @@ assert_eq!(row(5), "│ Don't forget the eggs.");
 | `> quote` | A dark grey `│` bar on every row |
 | `---` | A dark grey rule across the width |
 | `![alt](image.png)` | `[alt]` in dark grey |
+| `\| a \| b \|` tables | Columns, with a bold header over a rule |
 
-Tables, footnotes, strikethrough and task lists aren't enabled, so they show as
-the plain text they're written in. HTML tags are left out, and the text between
-them is kept.
+Footnotes, strikethrough and task lists aren't enabled, so they show as the plain
+text they're written in. HTML tags are left out, and the text between them is
+kept.
 
 ## Layout rules
 
@@ -64,6 +65,36 @@ them is kept.
 - List items sit on consecutive rows, and nested lists sit directly under their
   item. Long items wrap under their own text rather than under the bullet.
 - Tabs in code blocks become four spaces.
+
+## Tables
+
+A table's columns are as wide as their widest cell, separated by two blank
+columns, with the header in bold above a rule:
+
+```rust
+use auxior::{Area, Buffer, Canvas, Markdown};
+
+let page = Markdown::new("| Fruit | Qty |\n| --- | ---: |\n| apples | 3 |");
+
+let mut buf = Buffer::new(20, 3);
+let area = Area::new_from_buffer(&buf);
+page.render(&mut Canvas::new(&mut buf, area));
+
+let row = |y: u16| {
+    let text: String = (0..20).map(|x| buf.get(x, y).unwrap().ch).collect();
+    text.trim_end().to_string()
+};
+assert_eq!(row(0), "Fruit   Qty");
+assert_eq!(row(2), "apples    3"); // "Qty" and "3" are right-aligned.
+```
+
+- **Alignment** comes from the separator row: `---` or `:---` is left, `---:` is
+  right, and `:---:` is centered.
+- **When the table is too wide**, its widest columns are squeezed one column at a
+  time until it fits, down to three columns each. Cells then wrap onto more rows,
+  so a row of the table can take several rows of the screen.
+- **When even that isn't enough**, the columns that don't fit are clipped at the
+  edge like any other content.
 
 ## Rust code blocks
 

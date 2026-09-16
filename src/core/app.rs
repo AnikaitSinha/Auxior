@@ -25,6 +25,9 @@ pub struct AppConfig {
     pub quit_keys: Vec<KeyBinding>,
     /// Whether the terminal reports mouse events. See [`AppConfig::mouse_capture()`].
     pub mouse_capture: bool,
+    /// Whether only the areas widgets marked as redrawn are compared with the
+    /// previous frame. See [`AppConfig::incremental()`].
+    pub incremental: bool,
 }
 
 impl Default for AppConfig {
@@ -33,6 +36,7 @@ impl Default for AppConfig {
             target_fps: 60,
             quit_keys: Vec::new(),
             mouse_capture: false,
+            incremental: false,
         }
     }
 }
@@ -88,6 +92,19 @@ impl AppConfig {
         self
     }
 
+    /// Compares only the areas widgets marked as redrawn with the previous
+    /// frame, instead of the whole screen.
+    ///
+    /// Off by default, and worth turning on only for large screens that change
+    /// very little, together with [`Div::dirty`](crate::Div::dirty). With it on,
+    /// anything drawn without marking its area — by calling
+    /// [`Widget::render`](crate::Widget::render) instead of
+    /// [`render_with_context`](crate::Widget::render_with_context), or by writing
+    /// into the buffer directly — will not reach the screen.
+    pub fn incremental(mut self, on: bool) -> Self {
+        self.incremental = on;
+        self
+    }
     /// Adds the common pair of quit keys, `q` and `Esc`.
     pub fn default_quit_keys(self) -> Self {
         self.quit_key(KeyCode::Char('q')).quit_key(KeyCode::Esc)
@@ -285,7 +302,11 @@ impl App {
             }
 
             let mut ctx = RenderContext::new(&self.previous);
-            if self.first_frame {
+            // The whole screen is compared unless the application asked for
+            // incremental drawing, so a widget drawn without marking its area
+            // still reaches the terminal. Comparing cells is cheap; sending them
+            // is what costs.
+            if self.first_frame || !self.config.incremental {
                 ctx.force_full = true;
             }
 
@@ -469,5 +490,11 @@ mod tests {
         ));
 
         assert!(!config.is_quit_key(&release));
+    }
+
+    #[test]
+    fn incremental_drawing_is_off_by_default() {
+        assert!(!AppConfig::default().incremental);
+        assert!(AppConfig::new().incremental(true).incremental);
     }
 }

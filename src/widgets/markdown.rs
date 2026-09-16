@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crossterm::style::Color;
-use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use unicode_width::UnicodeWidthChar;
 
 use super::text::wrap_ranges;
@@ -17,6 +17,10 @@ const LINK: Color = Color::Blue;
 const MUTED: Color = Color::DarkGrey;
 // Rules fill the width, but an unmeasured width must not make them huge.
 const MAX_RULE: u16 = 256;
+// Columns of a table are never squeezed below this, however narrow the screen.
+const MIN_TABLE_COLUMN: u16 = 3;
+// Blank columns between table columns.
+const TABLE_GAP: u16 = 2;
 
 /// A heading in a [`Markdown`] document, for a table of contents or for jumping to a section.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,11 +36,12 @@ pub struct Heading {
 type LinkHandler = Box<dyn FnMut(&str)>;
 
 /// Renders CommonMark text: headings, paragraphs, emphasis, inline and fenced code, lists,
-/// block quotes, rules, links, and images as their alt text.
+/// tables, block quotes, rules, links, and images as their alt text.
 ///
 /// Text wraps to the width it is given, while code blocks are clipped. As on docs.rs, lines
-/// starting with `# ` are hidden in Rust code blocks. Tables, HTML and footnotes are left out.
-/// Put it in a [`ScrollView`](crate::ScrollView) for documents longer than the screen.
+/// starting with `# ` are hidden in Rust code blocks. HTML, footnotes and strikethrough are
+/// left out. Put it in a [`ScrollView`](crate::ScrollView) for documents longer than the
+/// screen.
 ///
 /// ```
 /// use auxior::{Area, Buffer, Canvas, Markdown, Widget};
@@ -238,12 +243,48 @@ enum Block {
         wrap: bool,
         heading: Option<u8>,
     },
+    // Cells laid out in columns, sized once the width is known.
+    Table {
+        first_prefix: Vec<Span>,
+        rest_prefix: Vec<Span>,
+        aligns: Vec<Align>,
+        header: Vec<Vec<Span>>,
+        rows: Vec<Vec<Vec<Span>>>,
+    },
     Blank {
         prefix: Vec<Span>,
     },
     Rule {
         prefix: Vec<Span>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Align {
+    Left,
+    Center,
+    Right,
+}
+
+impl From<Alignment> for Align {
+    fn from(alignment: Alignment) -> Self {
+        match alignment {
+            Alignment::Right => Align::Right,
+            Alignment::Center => Align::Center,
+            Alignment::Left | Alignment::None => Align::Left,
+        }
+    }
+}
+
+// A table being read.
+#[derive(Default)]
+struct TableState {
+    aligns: Vec<Align>,
+    header: Vec<Vec<Span>>,
+    rows: Vec<Vec<Vec<Span>>>,
+    // The row being read.
+    row: Vec<Vec<Span>>,
+    in_header: bool,
 }
 
 struct Document {
@@ -281,6 +322,7 @@ struct Builder {
     link: Option<usize>,
     heading: Option<u8>,
     code: Option<Code>,
+    table: Option<TableState>,
     // A blank row separates the next block from the previous one.
     gap: bool,
 }
@@ -288,7 +330,7 @@ struct Builder {
 fn parse(source: &str) -> Document {
     let mut builder = Builder::default();
 
-    for event in Parser::new(source) {
+    for event in Parser::new_ext(source, Options::ENABLE_TABLES) {
         match event {
             Event::Start(tag) => builder.start(tag),
             Event::End(tag) => builder.end(tag),
@@ -375,6 +417,26 @@ impl Builder {
                 self.image += 1;
                 self.push("[", self.style());
             }
+            Tag::Table(alignments) => {
+                self.flush();
+                self.table = Some(TableState {
+                    aligns: alignments.into_iter().map(Align::from).collect(),
+                    ..TableState::default()
+                });
+            }
+            Tag::TableHead => {
+                if let Some(table) = &mut self.table {
+                    table.in_header = true;
+                    table.row = Vec::new();
+                }
+            }
+            Tag::TableRow => {
+                if let Some(table) = &mut self.table {
+                    table.row = Vec::new();
+                }
+            }
+            // A cell's text arrives like any other inline content.
+            Tag::TableCell => self.lines = Vec::new(),
             _ => {}
         }
     }
@@ -411,6 +473,37 @@ impl Builder {
             TagEnd::Image => {
                 self.push("]", self.style());
                 self.image = self.image.saturating_sub(1);
+            }
+            TagEnd::TableCell => {
+                // Cells hold no line breaks of their own.
+                let cell: Vec<Span> = std::mem::take(&mut self.lines)
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                if let Some(table) = &mut self.table {
+                    table.row.push(cell);
+                }
+            }
+            TagEnd::TableHead => {
+                if let Some(table) = &mut self.table {
+                    table.header = std::mem::take(&mut table.row);
+                    table.in_header = false;
+                }
+            }
+            TagEnd::TableRow => {
+                if let Some(table) = &mut self.table {
+                    let row = std::mem::take(&mut table.row);
+                    if table.in_header {
+                        table.header = row;
+                    } else {
+                        table.rows.push(row);
+                    }
+                }
+            }
+            TagEnd::Table => {
+                if let Some(table) = self.table.take() {
+                    self.emit_table(table);
+                }
             }
             _ => {}
         }
@@ -526,6 +619,21 @@ impl Builder {
         (first, rest)
     }
 
+    fn emit_table(&mut self, table: TableState) {
+        if table.header.is_empty() && table.rows.is_empty() {
+            return;
+        }
+
+        let (first_prefix, rest_prefix) = self.begin_block();
+        self.blocks.push(Block::Table {
+            first_prefix,
+            rest_prefix,
+            aligns: table.aligns,
+            header: table.header,
+            rows: table.rows,
+        });
+    }
+
     // Adds the blank row that separates a new block from the previous one, if
     // one is due. Items in a list sit on consecutive rows, and so does a nested
     // list under its item's text, but a list is still set apart from what
@@ -607,6 +715,47 @@ fn lay_out(document: &Document, width: u16) -> Layout {
     for block in &document.blocks {
         match block {
             Block::Blank { prefix } => layout.rows.push(prefix.clone()),
+            Block::Table {
+                first_prefix,
+                rest_prefix,
+                aligns,
+                header,
+                rows,
+            } => {
+                let columns = header
+                    .len()
+                    .max(rows.iter().map(Vec::len).max().unwrap_or(0));
+                if columns == 0 {
+                    continue;
+                }
+
+                let available = width.saturating_sub(spans_width(rest_prefix));
+                let widths = table_widths(header, rows, columns, available);
+                let mut prefix = first_prefix;
+
+                if !header.is_empty() {
+                    push_table_row(&mut layout, prefix, header, &widths, aligns, true);
+                    prefix = rest_prefix;
+
+                    // The rule under the header, one run per column.
+                    let mut rule = prefix.clone();
+                    for (column, width) in widths.iter().enumerate() {
+                        if column > 0 {
+                            rule.push(spaces(TABLE_GAP));
+                        }
+                        rule.push(Span::new(
+                            "─".repeat(usize::from(*width)),
+                            Cell::with_fg(' ', MUTED),
+                        ));
+                    }
+                    layout.rows.push(rule);
+                }
+
+                for row in rows {
+                    push_table_row(&mut layout, prefix, row, &widths, aligns, false);
+                    prefix = rest_prefix;
+                }
+            }
             Block::Rule { prefix } => {
                 let length = width.saturating_sub(spans_width(prefix)).min(MAX_RULE);
                 let mut row = prefix.clone();
@@ -660,6 +809,97 @@ fn lay_out(document: &Document, width: u16) -> Layout {
     }
 
     layout
+}
+
+// The width of each table column: what its widest cell needs, with the widest
+// columns squeezed until the row fits.
+fn table_widths(
+    header: &[Vec<Span>],
+    rows: &[Vec<Vec<Span>>],
+    columns: usize,
+    available: u16,
+) -> Vec<u16> {
+    let mut widths = vec![0_u16; columns];
+    for row in std::iter::once(header).chain(rows.iter().map(Vec::as_slice)) {
+        for (column, cell) in row.iter().enumerate().take(columns) {
+            widths[column] = widths[column].max(spans_width(cell));
+        }
+    }
+
+    let gaps = TABLE_GAP.saturating_mul(columns.saturating_sub(1) as u16);
+    let mut total = widths
+        .iter()
+        .fold(gaps, |total, width| total.saturating_add(*width));
+
+    while total > available {
+        let widest = widths
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, width)| **width)
+            .map(|(column, _)| column);
+        let Some(column) = widest.filter(|&column| widths[column] > MIN_TABLE_COLUMN) else {
+            break;
+        };
+        widths[column] -= 1;
+        total -= 1;
+    }
+
+    widths
+}
+
+// One row of a table, which takes several rows of the screen when a cell wraps.
+fn push_table_row(
+    layout: &mut Layout,
+    prefix: &[Span],
+    cells: &[Vec<Span>],
+    widths: &[u16],
+    aligns: &[Align],
+    header: bool,
+) {
+    let wrapped: Vec<Vec<Vec<Span>>> = widths
+        .iter()
+        .enumerate()
+        .map(|(column, width)| {
+            let mut cell = cells.get(column).cloned().unwrap_or_default();
+            if header {
+                for span in &mut cell {
+                    span.style.b = true;
+                }
+            }
+            split_line(&cell, *width, true)
+        })
+        .collect();
+
+    let height = wrapped.iter().map(Vec::len).max().unwrap_or(1).max(1);
+    for line in 0..height {
+        let mut row = prefix.to_vec();
+        for (column, width) in widths.iter().enumerate() {
+            if column > 0 {
+                row.push(spaces(TABLE_GAP));
+            }
+
+            let piece = wrapped[column].get(line).cloned().unwrap_or_default();
+            let padding = width.saturating_sub(spans_width(&piece));
+            let (before, after) = match aligns.get(column).copied().unwrap_or(Align::Left) {
+                Align::Left => (0, padding),
+                Align::Right => (padding, 0),
+                Align::Center => (padding / 2, padding - padding / 2),
+            };
+
+            if before > 0 {
+                row.push(spaces(before));
+            }
+            row.extend(piece);
+            if after > 0 {
+                row.push(spaces(after));
+            }
+        }
+        layout.rows.push(row);
+    }
+}
+
+fn spaces(columns: u16) -> Span {
+    Span::new(" ".repeat(usize::from(columns)), Cell::default())
 }
 
 // One line of styled text as rows no wider than `width`: wrapped between words
@@ -963,5 +1203,53 @@ mod tests {
     fn the_gap_before_a_quote_has_no_quote_bar() {
         assert_eq!(rows("text\n\n> quoted", 20), ["text", "", "│ quoted"]);
         assert_eq!(rows("> a\n>\n> > b", 20), ["│ a", "│", "│ │ b"]);
+    }
+
+    #[test]
+    fn tables_line_up_in_columns() {
+        let source = "| Name | Qty |\n| --- | ---: |\n| apples | 3 |\n| pears | 10 |";
+
+        assert_eq!(
+            rows(source, 20),
+            ["Name    Qty", "──────  ───", "apples    3", "pears    10"]
+        );
+    }
+
+    #[test]
+    fn header_cells_are_bold_and_the_rule_is_muted() {
+        let markdown = Markdown::new("| Name |\n| --- |\n| apples |");
+        let buf = render(&markdown, 10, 3);
+
+        assert!(buf.get(0, 0).unwrap().b, "header");
+        assert_eq!(buf.get(0, 1).unwrap().ch, '─');
+        assert_eq!(buf.get(0, 1).unwrap().fg, MUTED);
+        assert!(!buf.get(0, 2).unwrap().b, "body");
+    }
+
+    #[test]
+    fn wide_tables_squeeze_and_wrap() {
+        let source =
+            "| Method | Effect |\n| --- | --- |\n| wrap | breaks long lines between words |";
+        let laid_out = rows(source, 20);
+
+        assert_eq!(laid_out[0], "Method  Effect");
+        assert!(
+            laid_out
+                .iter()
+                .all(|row| crate::core::text_width(row) <= 20),
+            "every row fits: {laid_out:?}"
+        );
+        assert!(laid_out.len() > 3, "the long cell wrapped: {laid_out:?}");
+    }
+
+    #[test]
+    fn a_table_inside_a_quote_keeps_its_bar() {
+        let source = "> | a |\n> | --- |\n> | b |";
+        let laid_out = rows(source, 20);
+
+        assert!(
+            laid_out.iter().all(|row| row.starts_with('│')),
+            "{laid_out:?}"
+        );
     }
 }

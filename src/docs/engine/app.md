@@ -154,6 +154,22 @@ It's off by default because it has a cost for the user: while an app captures th
 mouse, clicking and dragging no longer selects text in the terminal. Turn it on
 when your app has something to click.
 
+### Incremental drawing
+
+| Method | Default |
+|---|---|
+| [`incremental(on)`](crate::AppConfig::incremental()) | off |
+
+By default, every cell of the finished frame is compared with the previous frame,
+and the differences are sent. Comparing is cheap, so this costs little and means
+anything you draw appears.
+
+With it on, only the areas widgets recorded as redrawn are compared. That saves
+work on a large screen where very little changes each frame, especially together
+with [`Div::dirty`](crate::Div::dirty) — but anything drawn without recording its
+area will not reach the screen. See
+[from buffer to screen](rendering.md#incremental-drawing).
+
 ## Running: `App::run`
 
 [`App::run`](crate::App::run) runs the frame loop. You give it a closure, and it
