@@ -105,6 +105,9 @@ thread_local! {
 }
 
 type Handler = Box<dyn FnMut()>;
+// A widget that takes any key while it holds focus, such as a text field. It
+// reports whether it used the key.
+type KeySink = Box<dyn FnMut(&KeyEvent) -> bool>;
 
 // Frame-local map of key bindings collected while widgets render.
 #[derive(Default)]
@@ -113,6 +116,8 @@ pub struct KeyMap {
     // Bindings of focusable widgets, keyed by widget. Only the widget holding
     // focus when a key arrives gets it, and these beat `bindings`.
     focused: HashMap<(FocusId, KeyBinding), Handler>,
+    // Widgets that take every key while focused, keyed by widget.
+    typing: HashMap<FocusId, KeySink>,
 }
 
 impl KeyMap {
@@ -125,6 +130,7 @@ impl KeyMap {
             let mut map = map.borrow_mut();
             map.bindings.clear();
             map.focused.clear();
+            map.typing.clear();
         });
     }
 
@@ -151,6 +157,28 @@ impl KeyMap {
     // Runs the handler bound to `binding`, returning whether there was one.
     pub fn fire(binding: KeyBinding) -> bool {
         KEY_MAP.with(|map| Self::run(&mut map.borrow_mut().bindings, binding))
+    }
+
+    // Binds widget `id` to receive every key while it holds focus, for widgets
+    // that cannot name the keys they want, such as a text field. A key the
+    // handler declines carries on to the ordinary bindings.
+    pub fn bind_typing(id: FocusId, handler: impl FnMut(&KeyEvent) -> bool + 'static) {
+        KEY_MAP.with(|map| {
+            map.borrow_mut().typing.insert(id, Box::new(handler));
+        });
+    }
+
+    // Offers `event` to the focused widget's raw-key handler, if it has one,
+    // and reports whether that handler used it.
+    pub fn fire_typing(event: &KeyEvent) -> bool {
+        let Some(id) = Focus::focused() else {
+            return false;
+        };
+
+        KEY_MAP.with(|map| match map.borrow_mut().typing.get_mut(&id) {
+            Some(handler) => handler(event),
+            None => false,
+        })
     }
 
     // Runs the handler for `binding` belonging to whichever widget holds focus
@@ -384,5 +412,70 @@ mod tests {
 
         KeyMap::clear();
         assert!(!KeyMap::fire_focused(KeyBinding::from('a')));
+    }
+
+    #[test]
+    fn a_typing_widget_receives_every_key_while_focused() {
+        KeyMap::clear();
+        Focus::clear();
+        let field = FocusId::named("field");
+        let typed = Rc::new(std::cell::RefCell::new(String::new()));
+        let record = typed.clone();
+        KeyMap::bind_typing(field, move |event| match event.code {
+            KeyCode::Char(ch) => {
+                record.borrow_mut().push(ch);
+                true
+            }
+            _ => false,
+        });
+
+        // Nothing focused yet, so nothing takes the key.
+        assert!(!KeyMap::fire_typing(&KeyEvent::new(
+            KeyCode::Char('a'),
+            KeyModifiers::NONE
+        )));
+
+        Focus::set(field);
+        assert!(KeyMap::fire_typing(&KeyEvent::new(
+            KeyCode::Char('a'),
+            KeyModifiers::NONE
+        )));
+        assert!(KeyMap::fire_typing(&KeyEvent::new(
+            KeyCode::Char('日'),
+            KeyModifiers::NONE
+        )));
+        assert_eq!(*typed.borrow(), "a日");
+
+        // A key it declines is left for the ordinary bindings.
+        assert!(!KeyMap::fire_typing(&KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE
+        )));
+    }
+
+    #[test]
+    fn only_the_focused_widget_receives_typing() {
+        KeyMap::clear();
+        Focus::clear();
+        let count = Rc::new(Cell::new(0));
+        let seen = count.clone();
+        KeyMap::bind_typing(FocusId::named("field"), move |_| {
+            seen.set(seen.get() + 1);
+            true
+        });
+        let press = || KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+
+        Focus::set(FocusId::named("elsewhere"));
+        assert!(!KeyMap::fire_typing(&press()));
+        assert_eq!(count.get(), 0);
+
+        Focus::set(FocusId::named("field"));
+        assert!(KeyMap::fire_typing(&press()));
+        assert_eq!(count.get(), 1);
+
+        // Cleared with the rest of a frame's registrations.
+        KeyMap::clear();
+        assert!(!KeyMap::fire_typing(&press()));
+        assert_eq!(count.get(), 1);
     }
 }

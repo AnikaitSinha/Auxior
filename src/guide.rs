@@ -56,6 +56,9 @@ pub mod widgets {
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/button.md"))]
     pub mod button {}
 
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/input.md"))]
+    pub mod input {}
+
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/bar.md"))]
     pub mod bar {}
 

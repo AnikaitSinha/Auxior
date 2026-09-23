@@ -49,7 +49,7 @@
 //! - Running an app: [`App`], [`AppConfig`], [`AppEvent`], [`ControlFlow`]
 //! - Drawing: [`Buffer`], [`Canvas`], [`Area`], [`Cell`], [`Color`]
 //! - Layout: [`Div`], [`Flex`], [`Grid`], [`ScrollView`]
-//! - Content: [`Text`], [`Markdown`], [`Button`], [`Bar`], [`ScrollGraph`]
+//! - Content: [`Text`], [`Markdown`], [`Button`], [`Input`], [`Bar`], [`ScrollGraph`]
 //! - Composites: [`List`], [`Table`], [`StatusBar`], [`SparklineGraph`]
 //! - Input: [`KeyBinding`], [`Focus`], and mouse events through [`AppConfig::mouse_capture()`]
 //! - Your own widgets: implement [`Widget`]
@@ -75,6 +75,7 @@ pub use core::{
     KeyBinding, RenderContext, Terminal,
 };
 pub use widgets::{
-    Bar, BorderAlign, BorderSide, Button, Direction, Div, DivOptions, Flex, FlexDirection, Grid,
-    Heading, LayoutOptions, Markdown, ScrollGraph, ScrollState, ScrollView, Text, Widget,
+    Bar, BorderAlign, BorderSide, Button, Direction, Div, DivOptions, Filter, Flex, FlexDirection,
+    Grid, Heading, Input, InputState, LayoutOptions, Markdown, ScrollGraph, ScrollState,
+    ScrollView, Text, Widget,
 };

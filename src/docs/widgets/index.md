@@ -6,6 +6,7 @@ The building blocks every screen is made from.
 
 - [Text](text.md): plain or styled text, optionally wrapped
 - [Button](button.md): a label that runs code when pressed
+- [Input](input.md): a field the user types into — text, password or number
 - [Bar](bar.md): a one-row progress bar
 - [ScrollGraph](scroll-graph.md): a graph of recent values, drawn in braille
 

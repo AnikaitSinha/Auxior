@@ -51,6 +51,12 @@ pub(crate) fn dispatch_input(events: &[AppEvent]) {
                     }
                 }
 
+                // A widget that takes raw keys, such as a text field, sees
+                // them before anything else while it holds focus.
+                if KeyMap::fire_typing(key) {
+                    continue;
+                }
+
                 // The focused widget's bindings win over app-wide ones.
                 if KeyMap::fire_focused(binding) {
                     continue;
@@ -316,5 +322,47 @@ mod tests {
         ]);
 
         assert_eq!(total.get(), 0);
+    }
+
+    #[test]
+    fn a_typing_widget_sees_keys_before_the_bindings() {
+        reset();
+        let (id, _) = Focus::register(None);
+        Focus::set(id);
+
+        let typed = Rc::new(std::cell::RefCell::new(String::new()));
+        let record = typed.clone();
+        KeyMap::bind_typing(id, move |event| match event.code {
+            KeyCode::Char(ch) => {
+                record.borrow_mut().push(ch);
+                true
+            }
+            // Declined, so it carries on to the bindings below.
+            _ => false,
+        });
+
+        let (global, global_handler) = counter();
+        KeyMap::bind('a', global_handler);
+        let (focused, focused_handler) = counter();
+        KeyMap::bind_focused(id, KeyCode::Enter, focused_handler);
+
+        dispatch_input(&[key(KeyCode::Char('a')), key(KeyCode::Enter)]);
+
+        assert_eq!(*typed.borrow(), "a");
+        assert_eq!(global.get(), 0, "the field took the character");
+        assert_eq!(focused.get(), 1, "the declined key fell through");
+    }
+
+    #[test]
+    fn tab_still_leaves_a_typing_widget() {
+        reset();
+        let (field, _) = Focus::register(None);
+        let (next, _) = Focus::register(None);
+        Focus::set(field);
+        KeyMap::bind_typing(field, |_| true);
+
+        dispatch_input(&[key(KeyCode::Tab)]);
+
+        assert_eq!(Focus::focused(), Some(next));
     }
 }

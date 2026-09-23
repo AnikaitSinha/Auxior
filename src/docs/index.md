@@ -33,7 +33,7 @@ The ideas you work with when building an interface.
 
 The building blocks.
 
-- [Text](widgets/text.md), [Button](widgets/button.md),
+- [Text](widgets/text.md), [Button](widgets/button.md), [Input](widgets/input.md),
   [Bar](widgets/bar.md), [ScrollGraph](widgets/scroll-graph.md)
 - [Div](widgets/div.md), [Flex](widgets/flex.md),
   [Grid](widgets/grid.md)

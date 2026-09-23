@@ -14,6 +14,7 @@ frame:
 |---|---|---|
 | **Key bindings** | [`Button::key`](crate::Button::key) | A key, and the handler it runs from anywhere. If two widgets bind the same key, the one drawn last wins. |
 | **Focused bindings** | Focusable widgets, such as buttons (Enter, Space) and scroll views (arrows, paging) | A widget's id, a key, and the handler that runs when that key is pressed *while that widget has focus*. |
+| **Typing** | Widgets that cannot name the keys they want, such as [`Input`](crate::Input) | A widget's id, and a handler that sees *every* key while that widget has focus, and says whether it used it. |
 | **Click and wheel areas** | Buttons, links, scroll views | A rectangle on screen, an optional widget id, and a handler. Areas drawn later sit on top of earlier ones. |
 | **Focus order** | Every focusable widget, through [`Focus::register`](crate::Focus::register) | The focusable widgets, in the order they were drawn. |
 
@@ -64,9 +65,11 @@ A key goes through these checks, stopping at the first that applies:
    previous one, wrapping around at the ends. This only happens if the previous
    frame drew something focusable. With nothing focusable on screen, Tab
    continues down this list like any other key.
-3. **The focused widget's bindings.** If some widget has focus and registered
+3. **The focused widget's typing handler.** A text field takes the key, whatever
+   it is. A key it declines — Escape, say — carries on down this list.
+4. **The focused widget's bindings.** If some widget has focus and registered
    this key for itself, its handler runs.
-4. **Key bindings** registered from anywhere.
+5. **Key bindings** registered from anywhere.
 
 A key that matches nothing is still delivered to your frame callback in `events`,
 so your code can handle any key directly.
