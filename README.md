@@ -9,8 +9,10 @@ should show, and Auxior works out what to redraw.
 
 ## What's in it
 
-- **Layout** — `Div` for bordered boxes that stack their children, `Flex` for
-  rows and columns that share space, `Grid` for rows and columns together.
+- **Layout** — `Div` for boxes that stack their children, with borders in
+  several line styles on any set of edges and an alignable title and footer,
+  `Flex` for rows and columns that share space, `Grid` for rows and columns
+  together.
 - **Content** — `Text` with styles, wrapping, alignment and ellipsis,
   `Markdown` (CommonMark, including tables), `Button`, `Input` (text, password
   and number fields), `Bar` and braille graphs.

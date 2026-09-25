@@ -26,8 +26,13 @@ assert_eq!(row(4), "╰────────────╯");
 | Method | Default | Effect |
 |---|---|---|
 | [`child(widget)`](crate::Div::child) | | Adds a child below the previous ones. |
-| [`border(on)`](crate::Div::border) | off | Draws a rounded border around the div. |
+| [`border(on)`](crate::Div::border) | off | Draws a border around the div. |
+| [`border_style(style)`](crate::Div::border_style) | [`Rounded`](crate::BorderStyle) | The line the border is drawn with. |
+| [`border_sides(sides)`](crate::Div::border_sides) | [`all()`](crate::BorderSides::all) | Which edges are drawn. |
 | [`title(text)`](crate::Div::title) | none | A title, in the border or above the content. |
+| [`title_align(align)`](crate::Div::title_align) | [`Start`](crate::Align) | Where the title sits along its edge. |
+| [`footer(text)`](crate::Div::footer) | none | A footer, in the bottom border or below the content. |
+| [`footer_align(align)`](crate::Div::footer_align) | [`Start`](crate::Align) | Where the footer sits along its edge. |
 | [`padding(n)`](crate::Div::padding) | 0 | Blank cells inside the border, on every side. |
 | [`border_button(button)`](crate::Div::border_button) | | A button drawn into the border. |
 | [`dirty(on)`](crate::Div::dirty) | on | Whether the div redraws itself when drawn incrementally. |
@@ -40,18 +45,112 @@ A div fills the whole area it's given, unless it has a fixed `width` or `height`
 
 ## Border
 
-The border uses rounded corners and single lines — `╭ ╮ ╰ ╯ ─ │` — on the div's
-outermost cells, so the content area starts one cell in from each edge.
+The border is drawn on the div's outermost cells, so the content area starts one
+cell in from each edge that is drawn.
 
-## Title
+### Style
 
-**With a border**, the title sits in the top border, starting at column 2 (or the
-title's own `x`), with one space on each side. It moves right to make room for any
-start-aligned border buttons, and is cut off if the border is too short. The title
-is a full [`Text`](crate::Text), so it can be colored and styled.
+[`border_style`](crate::Div::border_style) picks the line, as a
+[`BorderStyle`](crate::BorderStyle):
 
-**Without a border**, the title is drawn at the top of the div, at its own `x` and
-`y`, and the content starts below it.
+| Style | Looks like |
+|---|---|
+| [`Rounded`](crate::BorderStyle) (the default) | `╭─╮` `│ │` `╰─╯` |
+| `Square` | `┌─┐` `│ │` `└─┘` |
+| `Double` | `╔═╗` `║ ║` `╚═╝` |
+| `Thick` | `┏━┓` `┃ ┃` `┗━┛` |
+| `Ascii` | `+-+` `\| \|` `+-+` |
+
+`Ascii` is for terminals that can't show box-drawing characters, and for output
+that has to survive being copied somewhere plainer. For anything else, pass
+[`BorderStyle::Custom`](crate::BorderStyle) a [`BorderChars`](crate::BorderChars)
+of your own:
+
+```rust
+use auxior::{BorderChars, BorderStyle, Div};
+use auxior::testing::render_to_text;
+
+let dots = BorderChars {
+    top_left: '·',
+    top_right: '·',
+    bottom_left: '·',
+    bottom_right: '·',
+    horizontal: '·',
+    vertical: '·',
+};
+let div = Div::new().border(true).border_style(BorderStyle::Custom(dots));
+
+assert_eq!(render_to_text(&div, 3, 3), "···\n· ·\n···");
+```
+
+### Sides
+
+[`border_sides`](crate::Div::border_sides) chooses which edges are drawn, as a
+[`BorderSides`](crate::BorderSides). All four by default;
+[`top()`](crate::BorderSides::top), [`bottom()`](crate::BorderSides::bottom),
+[`horizontal()`](crate::BorderSides::horizontal),
+[`vertical()`](crate::BorderSides::vertical) and
+[`none()`](crate::BorderSides::none) cover the usual sets, and the fields are
+public for anything else:
+
+```rust
+use auxior::{BorderSides, Div, Text};
+use auxior::testing::render_to_text;
+
+// A rule under a heading, and nothing else.
+let rule = Div::new()
+    .border(true)
+    .border_sides(BorderSides::bottom())
+    .child(Text::new("Title"));
+
+assert_eq!(render_to_text(&rule, 5, 2), "Title\n─────");
+
+// Everything but the bottom, for a box that continues below.
+let open = BorderSides {
+    bottom: false,
+    ..BorderSides::all()
+};
+assert_eq!(render_to_text(&Div::new().border(true).border_sides(open), 3, 2), "╭─╮\n│ │");
+```
+
+Two things follow from an edge not being drawn:
+
+- It takes no room, so the content fills the cells it would have used. A div with
+  only a bottom edge gives its children every row but the last.
+- A corner is only drawn where both of the edges meeting there are, so a lone
+  edge runs the full width or height.
+
+## Title and footer
+
+A div can have a title on its top edge and a footer on its bottom one. Both are
+full [`Text`](crate::Text) widgets, so both can be colored and styled.
+
+**With a border**, they sit in the border itself with one space on each side:
+
+```rust
+use auxior::{Align, Div, Text};
+use auxior::testing::render_to_text;
+
+let div = Div::new()
+    .border(true)
+    .title(Text::new("Logs"))
+    .footer(Text::new("1/3"))
+    .footer_align(Align::End);
+
+assert_eq!(render_to_text(&div, 12, 2), "╭ Logs ────╮\n╰───── 1/3 ╯");
+```
+
+[`title_align`](crate::Div::title_align) and
+[`footer_align`](crate::Div::footer_align) take an [`Align`](crate::Align) and
+move the label along its edge. The label is placed in whatever room is left
+*after* the border buttons on that edge are laid out, so aligning it to the end
+puts it beside the buttons rather than underneath them. A label with room to
+spare keeps a blank cell between itself and the corner; one that fills its edge
+runs right up to it, and is cut off if the edge is too short.
+
+**Without a border**, the title is drawn at the top of the div and the footer on
+its last row, both aligned the same way, with the content in between. A title
+also honors its own `x` and `y`.
 
 ## Children
 
@@ -78,8 +177,8 @@ explains how they're placed.
 
 | Question | Answer |
 |---|---|
-| Natural height | 3 with a border, 1 without. |
-| Height at a given width | Its children's flow, plus border, padding and title, and at least the natural height. |
+| Natural height | One row, plus a row for each border edge drawn above or below it: 3 for a full border, 1 for none. |
+| Height at a given width | Its children's flow, plus the border edges, padding, and a loose title or footer, and at least the natural height. |
 
 ## Incremental drawing
 

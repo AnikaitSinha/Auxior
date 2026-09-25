@@ -12,6 +12,25 @@ const BRAILLE_DOTS: [[u8; 2]; 4] = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0
 const RAMP: &[char] = &[' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
 // Terminal cells are about twice as tall as they are wide.
 const CELL_ASPECT: f32 = 2.0;
+// How far apart the lightest and darkest parts of a cell must be before braille
+// treats it as an edge to trace rather than as flat shading.
+const EDGE_CONTRAST: f32 = 64.0;
+// The most samples one point averages, per axis. Sixteen lookups a cell at the
+// worst, which is nothing next to the cost of sending the result.
+const MAX_TAPS: u16 = 4;
+// Where each sample sits inside its share of the area, as a fraction of it.
+//
+// Sampling the middle of each share sounds right and is a trap: the samples
+// then sit at a regular spacing, and a picture with a regular pattern of its
+// own can line up with it, so that every sample lands on the same part of the
+// pattern. A finely chequered picture comes out solid white rather than grey,
+// and the dithering that GIFs are full of turns into bands of flat colour.
+// These
+// offsets come from the golden ratio, which lines up with nothing.
+const TAP_OFFSETS: [f32; MAX_TAPS as usize] = [0.618_034, 0.236_068, 0.854_102, 0.472_136];
+// As fast as an animation may be played. Far beyond any real use, and low
+// enough that multiplying the clock by it cannot overflow.
+const MAX_SPEED: f32 = 1000.0;
 
 /// A decoded picture: red, green and blue for every pixel.
 ///
@@ -138,7 +157,7 @@ impl Animation {
             } else {
                 delay
             };
-            total += delay;
+            total = total.saturating_add(delay);
             frames.push(picture);
             ends.push(total);
         }
@@ -277,7 +296,7 @@ impl AnimationState {
     pub fn elapsed(&self) -> Duration {
         let base = self.inner.base.get();
         match self.inner.running_since.get() {
-            Some(since) => base + since.elapsed().mul_f32(self.inner.speed.get().max(0.0)),
+            Some(since) => base + since.elapsed().mul_f32(self.inner.speed.get()),
             None => base,
         }
     }
@@ -325,13 +344,20 @@ impl AnimationState {
     }
 
     /// How fast time passes: 1.0 is normal, 2.0 is twice as fast.
+    ///
+    /// Clamped to between zero and a thousand. Nothing sensible asks for more,
+    /// and a wild value would otherwise overflow the clock.
     pub fn set_speed(&self, speed: f32) {
         // Bank the time spent at the old speed first.
         self.inner.base.set(self.elapsed());
         if self.inner.running_since.get().is_some() {
             self.inner.running_since.set(Some(Instant::now()));
         }
-        self.inner.speed.set(speed.max(0.0));
+        // Deliberately not `clamp`, which passes a NaN straight through and
+        // would leave the clock to panic on it later. `max` returns the other
+        // side of the comparison for a NaN, turning it into zero.
+        #[allow(clippy::manual_clamp)]
+        self.inner.speed.set(speed.max(0.0).min(MAX_SPEED));
     }
 
     /// The current speed.
@@ -412,6 +438,8 @@ pub struct Image {
     mode: PixelMode,
     fit: Fit,
     repeat: Repeat,
+    // Only set when the caller supplied one; the default costs nothing.
+    ramp: Option<Vec<char>>,
     layout: LayoutOptions,
 }
 
@@ -427,6 +455,7 @@ impl Image {
             mode: PixelMode::default(),
             fit: Fit::default(),
             repeat: Repeat::default(),
+            ramp: None,
             layout: LayoutOptions::default(),
         }
     }
@@ -459,6 +488,26 @@ impl Image {
     /// [`Loop`](Repeat::Loop).
     pub fn repeat(mut self, repeat: Repeat) -> Self {
         self.repeat = repeat;
+        self
+    }
+
+    /// The characters [`Ascii`](PixelMode::Ascii) draws with, darkest first.
+    ///
+    /// Defaults to `` .:-=+*#%@``. Give it the same characters backwards for a
+    /// terminal with a light background, where dark ink means a bright pixel:
+    ///
+    /// ```
+    /// # use auxior::{Image, Picture};
+    /// # let picture = Picture::from_fn(1, 1, |_, _| (0, 0, 0)).unwrap();
+    /// let light = Image::picture(&picture).ramp("@%#*+=-:. ".chars());
+    /// ```
+    ///
+    /// An empty set of characters is ignored, and the default kept.
+    pub fn ramp(mut self, ramp: impl IntoIterator<Item = char>) -> Self {
+        let ramp: Vec<char> = ramp.into_iter().collect();
+        if !ramp.is_empty() {
+            self.ramp = Some(ramp);
+        }
         self
     }
 
@@ -604,8 +653,8 @@ fn plan(
 }
 
 // The average colour of the part of the picture one sample point covers.
-// Costs a fixed number of lookups, so a huge picture is no slower than a small
-// one.
+// Costs a fixed number of lookups however large the picture is, so the work
+// depends on the size of the terminal alone.
 fn sample(picture: &Picture, plan: &Plan, x: u16, y: u16, taps: (u16, u16)) -> (u8, u8, u8) {
     let (taps_x, taps_y) = taps;
     let step_x = plan.source_width / f32::from(plan.across);
@@ -617,8 +666,10 @@ fn sample(picture: &Picture, plan: &Plan, x: u16, y: u16, taps: (u16, u16)) -> (
     let (mut red, mut green, mut blue) = (0_u32, 0_u32, 0_u32);
     for row in 0..taps_y {
         for column in 0..taps_x {
-            let at_x = origin_x + (f32::from(column) + 0.5) * step_x / f32::from(taps_x);
-            let at_y = origin_y + (f32::from(row) + 0.5) * step_y / f32::from(taps_y);
+            let across = f32::from(column) + TAP_OFFSETS[usize::from(column)];
+            let down = f32::from(row) + TAP_OFFSETS[usize::from(row)];
+            let at_x = origin_x + across * step_x / f32::from(taps_x);
+            let at_y = origin_y + down * step_y / f32::from(taps_y);
             let (r, g, b) = picture.pixel(
                 (at_x.max(0.0) as u16).min(width - 1),
                 (at_y.max(0.0) as u16).min(height - 1),
@@ -644,8 +695,8 @@ fn taps(plan: &Plan) -> (u16, u16) {
     let across = plan.source_width / f32::from(plan.across);
     let down = plan.source_height / f32::from(plan.down);
     (
-        (across.round() as u16).clamp(1, 3),
-        (down.round() as u16).clamp(1, 3),
+        (across.round() as u16).clamp(1, MAX_TAPS),
+        (down.round() as u16).clamp(1, MAX_TAPS),
     )
 }
 
@@ -683,21 +734,30 @@ impl Widget for Image {
         // uncovered edge shows through.
         for row in 0..rows {
             for column in 0..columns {
-                let first_x = column * per_column;
-                let first_y = row * per_row;
+                let first_x = column.saturating_mul(per_column);
+                let first_y = row.saturating_mul(per_row);
                 // Skip the cell only if the picture misses it entirely; a cell
                 // the far edge lands inside draws with its edge pixels.
-                if first_x + per_column <= plan.left
-                    || first_y + per_row <= plan.top
-                    || first_x >= plan.left + plan.across
-                    || first_y >= plan.top + plan.down
+                if first_x.saturating_add(per_column) <= plan.left
+                    || first_y.saturating_add(per_row) <= plan.top
+                    || first_x >= plan.left.saturating_add(plan.across)
+                    || first_y >= plan.top.saturating_add(plan.down)
                 {
                     continue;
                 }
 
                 let at = |x: u16, y: u16| {
-                    let x = (first_x + x).saturating_sub(plan.left).min(plan.across - 1);
-                    let y = (first_y + y).saturating_sub(plan.top).min(plan.down - 1);
+                    // Samples past the far edge repeat the edge, which only
+                    // happens in the last cell of a picture that does not
+                    // divide evenly into cells.
+                    let x = first_x
+                        .saturating_add(x)
+                        .saturating_sub(plan.left)
+                        .min(plan.across - 1);
+                    let y = first_y
+                        .saturating_add(y)
+                        .saturating_sub(plan.top)
+                        .min(plan.down - 1);
                     sample(&picture, &plan, x, y, taps)
                 };
 
@@ -717,8 +777,9 @@ impl Widget for Image {
                     PixelMode::Braille => braille_cell(&at),
                     PixelMode::Ascii => {
                         let colour = at(0, 0);
-                        let step = brightness(colour) / 255.0 * (RAMP.len() - 1) as f32;
-                        Cell::with_fg(RAMP[step.round() as usize], rgb(colour))
+                        let ramp = self.ramp.as_deref().unwrap_or(RAMP);
+                        let step = brightness(colour) / 255.0 * (ramp.len() - 1) as f32;
+                        Cell::with_fg(ramp[step.round() as usize], rgb(colour))
                     }
                 };
                 canvas.set(column, row, cell);
@@ -769,8 +830,12 @@ fn braille_cell(at: &impl Fn(u16, u16) -> (u8, u8, u8)) -> Cell {
 
     let low = levels.iter().copied().fold(f32::MAX, f32::min);
     let high = levels.iter().copied().fold(f32::MIN, f32::max);
-    // A flat cell has no edge to trace, so compare against mid grey instead.
-    let threshold = if high - low < 16.0 {
+    // Where a cell holds a real edge, splitting it at the middle of its own
+    // range traces that edge finely. Where it does not, doing so would pick out
+    // whatever faint variation is there and draw it at full contrast, turning
+    // the dithering in a GIF into a field of noise. Such a cell is compared
+    // against plain mid grey instead, so that a dim one stays dark.
+    let threshold = if high - low < EDGE_CONTRAST {
         128.0
     } else {
         (low + high) / 2.0
@@ -1063,6 +1128,374 @@ mod tests {
         // rows: the shape is kept whatever the mode.
         let ascii = Image::picture(&solid(10, 10, (1, 2, 3))).mode(PixelMode::Ascii);
         assert_eq!(ascii.height_for_width(20), 10);
+    }
+
+    const MODES: [PixelMode; 3] = [PixelMode::HalfBlock, PixelMode::Braille, PixelMode::Ascii];
+
+    #[test]
+    fn contain_keeps_the_shape_and_stays_inside_the_space() {
+        for mode in MODES {
+            let per_cell = mode.cell_samples();
+            let aspect = mode.sample_aspect();
+
+            for (columns, rows) in [(1, 1), (3, 2), (17, 5), (80, 24), (200, 60)] {
+                for picture in [
+                    (1, 1),
+                    (4, 1),
+                    (1, 4),
+                    (16, 9),
+                    (9, 16),
+                    (618, 618),
+                    (1000, 3),
+                ] {
+                    let plan = plan(Fit::Contain, (columns, rows), per_cell, aspect, picture)
+                        .expect("a space and a picture both have a size");
+                    let where_ = format!("{mode:?} {columns}x{rows} cells, {picture:?} pixels");
+
+                    // Inside the space, on cell boundaries, and never empty.
+                    let grid = (columns * per_cell.0, rows * per_cell.1);
+                    assert!(plan.across >= 1 && plan.down >= 1, "{where_}");
+                    assert!(plan.left + plan.across <= grid.0, "{where_}");
+                    assert!(plan.top + plan.down <= grid.1, "{where_}");
+                    assert_eq!(plan.left % per_cell.0, 0, "{where_}");
+                    assert_eq!(plan.top % per_cell.1, 0, "{where_}");
+
+                    // The whole picture is shown: contain crops nothing.
+                    assert_eq!(plan.source_x, 0.0, "{where_}");
+                    assert_eq!(plan.source_y, 0.0, "{where_}");
+                    assert_eq!(plan.source_width, f32::from(picture.0), "{where_}");
+                    assert_eq!(plan.source_height, f32::from(picture.1), "{where_}");
+
+                    // And it keeps its shape, up to rounding to whole samples.
+                    // Where the picture is thinner than one sample there is
+                    // nothing left to round to, so that case is skipped.
+                    let shape = (f32::from(picture.0) / f32::from(picture.1)) * aspect;
+                    if plan.across > 1 && plan.down > 1 {
+                        let wanted = f32::from(plan.down) * shape;
+                        let slack = 0.5 * shape.max(1.0) + 0.001;
+                        assert!(
+                            (f32::from(plan.across) - wanted).abs() <= slack,
+                            "{where_}: {} across, wanted about {wanted}",
+                            plan.across
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cover_fills_the_space_and_crops_inside_the_picture() {
+        for mode in MODES {
+            let per_cell = mode.cell_samples();
+            let aspect = mode.sample_aspect();
+
+            for (columns, rows) in [(1, 1), (3, 2), (17, 5), (80, 24), (200, 60)] {
+                for picture in [
+                    (1, 1),
+                    (4, 1),
+                    (1, 4),
+                    (16, 9),
+                    (9, 16),
+                    (618, 618),
+                    (1000, 3),
+                ] {
+                    let plan = plan(Fit::Cover, (columns, rows), per_cell, aspect, picture)
+                        .expect("a space and a picture both have a size");
+                    let where_ = format!("{mode:?} {columns}x{rows} cells, {picture:?} pixels");
+
+                    // Every cell is covered.
+                    assert_eq!(plan.left, 0, "{where_}");
+                    assert_eq!(plan.top, 0, "{where_}");
+                    assert_eq!(plan.across, columns * per_cell.0, "{where_}");
+                    assert_eq!(plan.down, rows * per_cell.1, "{where_}");
+
+                    // The crop lies within the picture.
+                    assert!(plan.source_x >= -0.001, "{where_}");
+                    assert!(plan.source_y >= -0.001, "{where_}");
+                    assert!(
+                        plan.source_x + plan.source_width <= f32::from(picture.0) + 0.001,
+                        "{where_}"
+                    );
+                    assert!(
+                        plan.source_y + plan.source_height <= f32::from(picture.1) + 0.001,
+                        "{where_}"
+                    );
+                    assert!(
+                        plan.source_width > 0.0 && plan.source_height > 0.0,
+                        "{where_}"
+                    );
+
+                    // And the crop is the shape of the space, so nothing is
+                    // squashed: this is the whole point of cover.
+                    let shown = (plan.source_width / plan.source_height) * aspect;
+                    let space = f32::from(plan.across) / f32::from(plan.down);
+                    assert!(
+                        (shown - space).abs() <= space * 0.001,
+                        "{where_}: crop shape {shown}, space shape {space}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stretch_uses_all_of_both() {
+        for mode in MODES {
+            let per_cell = mode.cell_samples();
+            let plan = plan(
+                Fit::Stretch,
+                (9, 4),
+                per_cell,
+                mode.sample_aspect(),
+                (16, 9),
+            )
+            .expect("a space and a picture both have a size");
+
+            assert_eq!((plan.left, plan.top), (0, 0));
+            assert_eq!(plan.across, 9 * per_cell.0);
+            assert_eq!(plan.down, 4 * per_cell.1);
+            assert_eq!(plan.source_width, 16.0);
+            assert_eq!(plan.source_height, 9.0);
+        }
+    }
+
+    #[test]
+    fn nothing_panics_at_any_size() {
+        // Sizes that have caught edge cases before: one cell, one pixel, and
+        // pictures far thinner than the space they are drawn in.
+        for mode in MODES {
+            for fit in [Fit::Contain, Fit::Cover, Fit::Stretch] {
+                for (columns, rows) in [(1, 1), (1, 7), (7, 1), (13, 4), (80, 24)] {
+                    for size in [(1, 1), (1, 9), (9, 1), (3, 7), (256, 256)] {
+                        let picture = Picture::from_fn(size.0, size.1, |x, y| {
+                            ((x % 256) as u8, (y % 256) as u8, 0)
+                        })
+                        .unwrap();
+                        let buffer =
+                            draw(Image::picture(&picture).mode(mode).fit(fit), columns, rows);
+
+                        // Something is always drawn: a picture never vanishes.
+                        let drawn = (0..rows)
+                            .flat_map(|y| (0..columns).map(move |x| (x, y)))
+                            .filter(|(x, y)| *buffer.get(*x, *y).unwrap() != Cell::empty())
+                            .count();
+                        assert!(drawn > 0, "{mode:?} {fit:?} {columns}x{rows} from {size:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cover_crops_from_the_middle() {
+        // Four pixels across: the ends are trimmed and the middle kept.
+        let picture = Picture::from_fn(4, 2, |x, _| match x {
+            0 => (255, 0, 0),
+            3 => (0, 0, 255),
+            _ => (0, 255, 0),
+        })
+        .unwrap();
+
+        let buffer = draw(Image::picture(&picture).fit(Fit::Cover), 1, 1);
+        assert_eq!(
+            buffer.get(0, 0).unwrap().bg,
+            Color::Rgb { r: 0, g: 255, b: 0 },
+            "the middle of the picture, not an end"
+        );
+    }
+
+    #[test]
+    fn contain_centres_what_it_draws() {
+        // A sliver four times taller than it is wide, in a square-ish space.
+        let buffer = draw(Image::picture(&solid(1, 4, (255, 255, 255))), 4, 2);
+
+        let drawn: Vec<u16> = (0..4)
+            .filter(|x| *buffer.get(*x, 0).unwrap() != Cell::empty())
+            .collect();
+        assert_eq!(drawn, vec![1], "one column, in the middle");
+    }
+
+    #[test]
+    fn a_cell_averages_everything_under_it() {
+        // A fine checkerboard shrunk into one cell comes out grey, rather than
+        // whichever square a single sample happened to land on.
+        let picture = Picture::from_fn(6, 6, |x, y| {
+            if (x + y) % 2 == 0 {
+                (255, 255, 255)
+            } else {
+                (0, 0, 0)
+            }
+        })
+        .unwrap();
+
+        let buffer = draw(
+            Image::picture(&picture)
+                .mode(PixelMode::Ascii)
+                .fit(Fit::Stretch),
+            1,
+            1,
+        );
+
+        let Color::Rgb { r, .. } = buffer.get(0, 0).unwrap().fg else {
+            panic!("a sampled cell is always a true colour");
+        };
+        assert!((80..=175).contains(&r), "a middling grey, got {r}");
+    }
+
+    #[test]
+    fn braille_does_not_turn_dithering_into_noise() {
+        // Two dark shades alternating, as a GIF dithers a dark background.
+        // Faint shading is not an edge, and drawing it at full contrast would
+        // fill the cell with dots that are not really there.
+        let picture = Picture::from_fn(16, 16, |x, y| {
+            if (x + y) % 2 == 0 {
+                (60, 60, 60)
+            } else {
+                (20, 20, 20)
+            }
+        })
+        .unwrap();
+
+        let buffer = draw(
+            Image::picture(&picture)
+                .mode(PixelMode::Braille)
+                .fit(Fit::Stretch),
+            4,
+            2,
+        );
+
+        for y in 0..2 {
+            for x in 0..4 {
+                assert_eq!(
+                    buffer.get(x, y).unwrap().ch,
+                    '\u{2800}',
+                    "at {x},{y}: dark dithering should stay dark"
+                );
+            }
+        }
+
+        // A real edge is still traced: half white against half black.
+        let edge = Picture::from_fn(
+            2,
+            4,
+            |x, _| if x == 0 { (255, 255, 255) } else { (0, 0, 0) },
+        )
+        .unwrap();
+        let buffer = draw(
+            Image::picture(&edge)
+                .mode(PixelMode::Braille)
+                .fit(Fit::Stretch),
+            1,
+            1,
+        );
+        assert_eq!(
+            buffer.get(0, 0).unwrap().ch,
+            char::from_u32(0x2800 + 0x47).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_dithered_picture_averages_rather_than_banding() {
+        // Patterns with a two-pixel period, which is what dithering in a GIF
+        // looks like. Shrunk down they should all come out mid-grey.
+        type Pattern = (&'static str, fn(u16, u16) -> bool);
+        let patterns: [Pattern; 3] = [
+            ("columns", |x, _| x % 2 == 0),
+            ("rows", |_, y| y % 2 == 0),
+            ("chequers", |x, y| (x + y) % 2 == 0),
+        ];
+
+        for (name, lit) in patterns {
+            let picture = Picture::from_fn(64, 64, |x, y| {
+                if lit(x, y) {
+                    (255, 255, 255)
+                } else {
+                    (0, 0, 0)
+                }
+            })
+            .unwrap();
+
+            let buffer = draw(
+                Image::picture(&picture)
+                    .mode(PixelMode::Ascii)
+                    .fit(Fit::Stretch),
+                8,
+                4,
+            );
+
+            for y in 0..4 {
+                for x in 0..8 {
+                    let Color::Rgb { r, .. } = buffer.get(x, y).unwrap().fg else {
+                        panic!("a sampled cell is always a true colour");
+                    };
+                    assert!(
+                        (60..=195).contains(&r),
+                        "{name} at {x},{y}: {r}, which is a band rather than a blend"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_custom_ramp_replaces_the_characters() {
+        let picture = Picture::from_fn(
+            2,
+            1,
+            |x, _| if x == 0 { (0, 0, 0) } else { (255, 255, 255) },
+        )
+        .unwrap();
+        let image = || {
+            Image::picture(&picture)
+                .mode(PixelMode::Ascii)
+                .fit(Fit::Stretch)
+        };
+
+        let buffer = draw(image().ramp("ab".chars()), 2, 1);
+        assert_eq!(buffer.get(0, 0).unwrap().ch, 'a');
+        assert_eq!(buffer.get(1, 0).unwrap().ch, 'b');
+
+        // Backwards, for a terminal with a light background.
+        let buffer = draw(image().ramp("@%#*+=-:. ".chars()), 2, 1);
+        assert_eq!(buffer.get(0, 0).unwrap().ch, '@');
+        assert_eq!(buffer.get(1, 0).unwrap().ch, ' ');
+
+        // An empty ramp is ignored rather than breaking the drawing.
+        let buffer = draw(image().ramp(std::iter::empty()), 2, 1);
+        assert_eq!(buffer.get(1, 0).unwrap().ch, '@');
+    }
+
+    #[test]
+    fn a_wild_speed_does_not_break_the_clock() {
+        let state = AnimationState::new();
+        state.set_speed(f32::MAX);
+        assert_eq!(state.speed(), MAX_SPEED);
+
+        state.set_speed(-5.0);
+        assert_eq!(state.speed(), 0.0);
+
+        state.set_speed(f32::NAN);
+        assert_eq!(state.speed(), 0.0);
+
+        // A stopped clock, whatever the speed.
+        let held = state.elapsed();
+        assert_eq!(state.elapsed(), held);
+    }
+
+    #[test]
+    fn a_very_long_animation_still_has_a_duration() {
+        let animation = Animation::new(
+            (0..4).map(|_| (solid(1, 1, (0, 0, 0)), Duration::from_secs(u64::MAX / 2))),
+        );
+
+        assert_eq!(animation.len(), 4);
+        // Saturated rather than overflowed, and still answers questions.
+        assert!(
+            animation
+                .index_at(Duration::from_secs(1), Repeat::Loop)
+                .is_some()
+        );
     }
 
     #[test]

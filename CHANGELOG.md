@@ -26,8 +26,14 @@ below describes 0.1.0 as it stands.
   `SparklineGraph` composites.
 - `Image`: pictures and animations drawn as half blocks, braille or ASCII, sampled
   afresh for whatever space they are given and corrected for the shape of a cell.
+  Sampling is offset by fractions of the golden ratio so that dithering blends
+  rather than banding, and braille treats faint shading as flat rather than
+  tracing it as an edge. ASCII takes a custom ramp through `Image::ramp`.
   Playback follows the wall clock through `AnimationState`, so an animation keeps
   its own timing whatever rate the application draws at.
+- `Div` borders in five line styles (`Rounded`, `Square`, `Double`, `Thick`,
+  `Ascii`) or characters of your own, drawn on any set of edges, with an
+  alignable title and footer.
 - `Div`, `Flex` and `Grid` for layout, with fixed sizes, flex weights and
   width-aware measurement.
 

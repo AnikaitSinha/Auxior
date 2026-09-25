@@ -62,10 +62,29 @@ half as many bytes — worth knowing, because it makes flat drawings much cheape
 to send than photographs.
 
 `Braille` lights a dot where the pixel is brighter than the middle of that cell's
-own range, so outlines survive in dark and light areas alike. All eight dots share
-one colour.
+own range, so an outline is traced finely wherever it falls between light and
+dark. That only holds where a cell really does hold an edge. Where the light and
+dark parts of a cell are less than a quarter of the range apart it is treated as
+flat shading and compared against plain mid grey instead, so a dim cell stays
+dark. Without that, faint variation gets drawn at full contrast and the dithering
+GIFs are full of becomes a field of noise. All eight dots share one colour.
 
-`Ascii` picks a character from `` .:-=+*#%@`` by brightness.
+`Ascii` picks a character from `` .:-=+*#%@`` by brightness. Supply your own with
+[`ramp`](crate::Image::ramp), darkest first:
+
+```rust
+use auxior::{Image, PixelMode, Picture};
+
+let picture = Picture::from_fn(4, 4, |_, _| (10, 10, 10)).unwrap();
+
+// The same characters backwards suit a terminal with a light background,
+// where dark ink means a bright pixel.
+let image = Image::picture(&picture)
+    .mode(PixelMode::Ascii)
+    .ramp("@%#*+=-:. ".chars());
+```
+
+An empty ramp is ignored and the default kept.
 
 ## Fitting
 
@@ -78,14 +97,44 @@ not the same shape:
 | [`Cover`](crate::Fit::Cover) | Every cell filled, shape kept, the overflow cropped off the sides or the top and bottom. |
 | [`Stretch`](crate::Fit::Stretch) | Every cell filled by squashing the picture. |
 
+Whatever is drawn is centred in the space, and starts on a cell boundary, so no
+cell is left half inside the picture and half outside it. Where the picture does
+not divide evenly into cells the last row or column of cells repeats the edge
+pixels rather than being dropped, which keeps the picture the size it should be
+at the cost of a sliver of duplication at the far edge.
+
 A terminal cell is about twice as tall as it is wide, and `Image` corrects for
 that. A square picture drawn twenty columns wide takes ten rows, not twenty, and
 looks square on screen. The same correction is applied in every mode, so
 switching mode changes the detail but never the shape.
 
 In a [`Div`](crate::Div)'s top-to-bottom flow a picture asks for the height that
-keeps its shape at the width it is given. Give it `.flex(1)` inside a
+keeps its shape at the width it is given, whichever fit is set — a picture that
+would be cropped or stretched still asks for the height that would need neither.
+ Give it `.flex(1)` inside a
 [`Flex`](crate::Flex) to let it take the space that is left instead.
+
+## How the sampling works
+
+Every character on screen stands for an area of the picture rather than a single
+pixel, and that area is averaged. Each sample takes up to four readings per axis,
+so at most sixteen for one point, whatever the picture's size — a photograph far
+larger than the terminal costs the same to draw as a small one. It is the number
+of cells that counts, and there are only a few thousand of those.
+
+Where those readings are taken matters more than it sounds. Reading the middle of
+each share of the area would space them evenly, and evenly spaced readings can
+line up with a pattern in the picture so that every one lands on the same part of
+it. A finely chequered picture then comes out solid white instead of grey, and
+the dithering that GIFs are full of — the alternating pixels a 256-colour palette
+uses to fake shades it does not have — turns into bands of flat colour. The
+readings are therefore offset by fractions taken from the golden ratio, which
+lines up with nothing, and dithering blends the way it should.
+
+None of this is stored. The mapping from picture to screen is worked out again
+every frame, which is a handful of divisions rather than a pass over the pixels,
+so a resize needs nothing invalidated and a picture drawn at two sizes at once
+costs nothing extra.
 
 ## Animation
 
@@ -140,7 +189,7 @@ The state is a handle you can hold in your application:
 | [`pause`](crate::AnimationState::pause), [`resume`](crate::AnimationState::resume), [`toggle`](crate::AnimationState::toggle) | Stop and start the clock. Paused time does not count. |
 | [`restart`](crate::AnimationState::restart) | Back to the first picture. |
 | [`set_elapsed`](crate::AnimationState::set_elapsed) | Jump to a moment. |
-| [`set_speed`](crate::AnimationState::set_speed) | How fast time passes; 2.0 is twice as fast. |
+| [`set_speed`](crate::AnimationState::set_speed) | How fast time passes; 2.0 is twice as fast. Clamped to between zero and a thousand. |
 
 An animation only moves if frames keep being drawn, so set a
 [`target_fps`](crate::AppConfig::target_fps) on the app. With no input arriving,
@@ -149,10 +198,9 @@ the frame loop still runs on that schedule and delivers
 
 ## What it costs
 
-The work of drawing does not depend on the size of the picture. Every cell on
-screen takes a fixed number of pixel lookups, up to nine, so a picture far larger
-than the terminal costs no more to draw than a small one — it is the number of
-cells that counts, and there are only a few thousand of those.
+The work of drawing does not depend on the size of the picture, as
+[the sampling](#how-the-sampling-works) explains: a bounded number of readings per
+cell, and a few thousand cells.
 
 What does cost is sending the result. A full-screen picture in `HalfBlock` writes
 two colours for nearly every cell, which is about 40 bytes each and 175 KB for an

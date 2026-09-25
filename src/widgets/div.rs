@@ -1,9 +1,190 @@
 use unicode_width::UnicodeWidthChar;
 
-use crate::{Area, Canvas, Cell, RenderContext, Text};
+use crate::{Align, Area, Canvas, Cell, RenderContext, Text};
 
 use super::button::{BorderAlign, BorderSide, Button};
 use super::widget::{LayoutOptions, Widget};
+
+/// The characters a border is drawn with.
+///
+/// Build one directly to draw a border with characters of your own, and pass it as
+/// [`BorderStyle::Custom`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BorderChars {
+    /// The top left corner.
+    pub top_left: char,
+    /// The top right corner.
+    pub top_right: char,
+    /// The bottom left corner.
+    pub bottom_left: char,
+    /// The bottom right corner.
+    pub bottom_right: char,
+    /// The top and bottom edges.
+    pub horizontal: char,
+    /// The left and right edges.
+    pub vertical: char,
+}
+
+/// The line a [`Div`]'s border is drawn with.
+///
+/// ```
+/// use auxior::{BorderStyle, Div};
+/// use auxior::testing::render_to_text;
+///
+/// let div = Div::new().border(true).border_style(BorderStyle::Double);
+/// assert_eq!(render_to_text(&div, 3, 2), "╔═╗\n╚═╝");
+/// ```
+///
+/// Every style but [`Ascii`](BorderStyle::Ascii) uses box-drawing characters, which almost
+/// every terminal in use today can show. `Ascii` is there for the ones that cannot, and for
+/// output that has to survive being copied somewhere plainer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BorderStyle {
+    /// Thin lines with rounded corners: `╭─╮`. The default.
+    #[default]
+    Rounded,
+    /// Thin lines with square corners: `┌─┐`.
+    Square,
+    /// Double lines: `╔═╗`.
+    Double,
+    /// Heavy lines: `┏━┓`.
+    Thick,
+    /// Plain ASCII: `+-+`, for terminals that cannot show box-drawing characters.
+    Ascii,
+    /// Characters of your own.
+    Custom(BorderChars),
+}
+
+impl BorderStyle {
+    /// The characters this style draws with.
+    pub fn chars(self) -> BorderChars {
+        let (top_left, top_right, bottom_left, bottom_right, horizontal, vertical) = match self {
+            BorderStyle::Rounded => ('╭', '╮', '╰', '╯', '─', '│'),
+            BorderStyle::Square => ('┌', '┐', '└', '┘', '─', '│'),
+            BorderStyle::Double => ('╔', '╗', '╚', '╝', '═', '║'),
+            BorderStyle::Thick => ('┏', '┓', '┗', '┛', '━', '┃'),
+            BorderStyle::Ascii => ('+', '+', '+', '+', '-', '|'),
+            BorderStyle::Custom(chars) => return chars,
+        };
+
+        BorderChars {
+            top_left,
+            top_right,
+            bottom_left,
+            bottom_right,
+            horizontal,
+            vertical,
+        }
+    }
+}
+
+/// Which edges of a [`Div`]'s border are drawn.
+///
+/// All four by default. The fields are public, so a set is usually written by changing one:
+///
+/// ```
+/// use auxior::{BorderSides, Div};
+/// use auxior::testing::render_to_text;
+///
+/// // A rule above the content, and nothing else.
+/// let div = Div::new().border(true).border_sides(BorderSides::top());
+/// assert_eq!(render_to_text(&div, 3, 2), "───\n   ");
+///
+/// // Everything but the bottom.
+/// let open = BorderSides {
+///     bottom: false,
+///     ..BorderSides::all()
+/// };
+/// assert_eq!(render_to_text(&Div::new().border(true).border_sides(open), 3, 2), "╭─╮\n│ │");
+/// ```
+///
+/// A corner is only drawn where both of the edges meeting there are, so an edge on its own runs
+/// the full width or height.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BorderSides {
+    /// The top edge.
+    pub top: bool,
+    /// The right edge.
+    pub right: bool,
+    /// The bottom edge.
+    pub bottom: bool,
+    /// The left edge.
+    pub left: bool,
+}
+
+impl Default for BorderSides {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
+impl BorderSides {
+    /// All four edges.
+    pub const fn all() -> Self {
+        Self {
+            top: true,
+            right: true,
+            bottom: true,
+            left: true,
+        }
+    }
+
+    /// No edges. The border then takes no room, and the content fills the div.
+    pub const fn none() -> Self {
+        Self {
+            top: false,
+            right: false,
+            bottom: false,
+            left: false,
+        }
+    }
+
+    /// The top and bottom edges only.
+    pub const fn horizontal() -> Self {
+        Self {
+            top: true,
+            right: false,
+            bottom: true,
+            left: false,
+        }
+    }
+
+    /// The left and right edges only.
+    pub const fn vertical() -> Self {
+        Self {
+            top: false,
+            right: true,
+            bottom: false,
+            left: true,
+        }
+    }
+
+    /// The top edge only.
+    pub const fn top() -> Self {
+        Self {
+            top: true,
+            ..Self::none()
+        }
+    }
+
+    /// The bottom edge only.
+    pub const fn bottom() -> Self {
+        Self {
+            bottom: true,
+            ..Self::none()
+        }
+    }
+
+    // Columns the left and right edges take between them.
+    fn columns(self) -> u16 {
+        u16::from(self.left) + u16::from(self.right)
+    }
+
+    // Rows the top and bottom edges take between them.
+    fn rows(self) -> u16 {
+        u16::from(self.top) + u16::from(self.bottom)
+    }
+}
 
 /// The settings of a [`Div`], for building them up front and applying them with
 /// [`Div::options`].
@@ -11,8 +192,19 @@ use super::widget::{LayoutOptions, Widget};
 pub struct DivOptions {
     /// Draw a border around the div.
     pub border: bool,
+    /// The line the border is drawn with.
+    pub border_style: BorderStyle,
+    /// Which edges of the border are drawn.
+    pub border_sides: BorderSides,
     /// A title shown in the top border, or without a border on its own row above the content.
     pub title: Option<Text>,
+    /// Where the title sits along the edge it is drawn on.
+    pub title_align: Align,
+    /// A footer shown in the bottom border, or without a border on its own row below the
+    /// content.
+    pub footer: Option<Text>,
+    /// Where the footer sits along the edge it is drawn on.
+    pub footer_align: Align,
     /// Buttons drawn into the border.
     pub border_buttons: Vec<Button>,
     /// Blank cells between the border (or the edge) and the content, on every side.
@@ -27,7 +219,12 @@ impl Default for DivOptions {
     fn default() -> Self {
         Self {
             border: false,
+            border_style: BorderStyle::default(),
+            border_sides: BorderSides::all(),
             title: None,
+            title_align: Align::Start,
+            footer: None,
+            footer_align: Align::Start,
             border_buttons: Vec::new(),
             padding: 0,
             layout: LayoutOptions::default(),
@@ -48,9 +245,39 @@ impl DivOptions {
         self
     }
 
+    /// Sets the line the border is drawn with.
+    pub fn border_style(mut self, style: BorderStyle) -> Self {
+        self.border_style = style;
+        self
+    }
+
+    /// Sets which edges of the border are drawn.
+    pub fn border_sides(mut self, sides: BorderSides) -> Self {
+        self.border_sides = sides;
+        self
+    }
+
     /// Sets the title.
     pub fn title(mut self, text: Text) -> Self {
         self.title = Some(text);
+        self
+    }
+
+    /// Sets where the title sits along its edge.
+    pub fn title_align(mut self, align: Align) -> Self {
+        self.title_align = align;
+        self
+    }
+
+    /// Sets the footer.
+    pub fn footer(mut self, text: Text) -> Self {
+        self.footer = Some(text);
+        self
+    }
+
+    /// Sets where the footer sits along its edge.
+    pub fn footer_align(mut self, align: Align) -> Self {
+        self.footer_align = align;
         self
     }
 
@@ -119,10 +346,89 @@ impl Div {
     //     self
     // }
 
+    /// Sets the line the border is drawn with. Defaults to [`BorderStyle::Rounded`].
+    ///
+    /// ```
+    /// use auxior::{BorderStyle, Div};
+    /// use auxior::testing::render_to_text;
+    ///
+    /// let div = Div::new().border(true).border_style(BorderStyle::Thick);
+    /// assert_eq!(render_to_text(&div, 3, 2), "┏━┓\n┗━┛");
+    /// ```
+    pub fn border_style(mut self, style: BorderStyle) -> Self {
+        self.options.border_style = style;
+        self
+    }
+
+    /// Sets which edges of the border are drawn. Defaults to all four.
+    ///
+    /// Edges that are not drawn take no room, so the content fills the space they would have
+    /// used.
+    ///
+    /// ```
+    /// use auxior::{BorderSides, Div, Text};
+    /// use auxior::testing::render_to_text;
+    ///
+    /// let div = Div::new()
+    ///     .border(true)
+    ///     .border_sides(BorderSides::bottom())
+    ///     .child(Text::new("hi"));
+    ///
+    /// assert_eq!(render_to_text(&div, 4, 2), "hi  \n────");
+    /// ```
+    pub fn border_sides(mut self, sides: BorderSides) -> Self {
+        self.options.border_sides = sides;
+        self
+    }
+
     /// Sets the title, shown in the top border or, without a border, on its own row above the
     /// content.
     pub fn title(mut self, text: Text) -> Self {
         self.options.title = Some(text);
+        self
+    }
+
+    /// Sets where the title sits along the edge it is drawn on. Defaults to
+    /// [`Align::Start`](crate::Align).
+    ///
+    /// The title is placed in whatever room is left between the border buttons, so aligning it
+    /// moves it within that room rather than within the whole edge.
+    ///
+    /// ```
+    /// use auxior::{Align, Div, Text};
+    /// use auxior::testing::render_to_text;
+    ///
+    /// let div = Div::new()
+    ///     .border(true)
+    ///     .title(Text::new("hi"))
+    ///     .title_align(Align::Center);
+    ///
+    /// assert_eq!(render_to_text(&div, 9, 2), "╭─ hi ──╮\n╰───────╯");
+    /// ```
+    pub fn title_align(mut self, align: Align) -> Self {
+        self.options.title_align = align;
+        self
+    }
+
+    /// Sets the footer, shown in the bottom border or, without a border, on its own row below
+    /// the content.
+    ///
+    /// ```
+    /// use auxior::{Div, Text};
+    /// use auxior::testing::render_to_text;
+    ///
+    /// let div = Div::new().border(true).footer(Text::new("1/3"));
+    /// assert_eq!(render_to_text(&div, 9, 2), "╭───────╮\n╰ 1/3 ──╯");
+    /// ```
+    pub fn footer(mut self, text: Text) -> Self {
+        self.options.footer = Some(text);
+        self
+    }
+
+    /// Sets where the footer sits along the edge it is drawn on. Defaults to
+    /// [`Align::Start`](crate::Align).
+    pub fn footer_align(mut self, align: Align) -> Self {
+        self.options.footer_align = align;
         self
     }
 
@@ -193,13 +499,14 @@ impl Div {
 
     fn render_content(&self, canvas: &mut Canvas) {
         if self.options.border {
-            draw_border(
-                canvas,
-                self.options.title.as_ref(),
-                &self.options.border_buttons,
-            );
-        } else if let Some(title) = &self.options.title {
-            draw_title(canvas, title);
+            draw_border(canvas, &self.options);
+        } else {
+            if let Some(title) = &self.options.title {
+                draw_title(canvas, title, self.options.title_align);
+            }
+            if let Some(footer) = &self.options.footer {
+                draw_footer(canvas, footer, self.options.footer_align);
+            }
         }
 
         let content = content_area(canvas, &self.options);
@@ -228,15 +535,25 @@ impl Widget for Div {
     }
 
     fn default_height(&self) -> u16 {
-        if self.options.border { 3 } else { 1 }
+        let options = &self.options;
+        let frame = if options.border {
+            options.border_sides.rows()
+        } else {
+            options.footer.as_ref().map_or(0, label_rows)
+        };
+        frame.saturating_add(1)
     }
 
     fn height_for_width(&self, width: u16) -> u16 {
         let options = &self.options;
         let width = options.layout.width.unwrap_or(width).min(width);
-        let frame = if options.border { 2 } else { 0 };
+        let (frame_columns, frame_rows) = if options.border {
+            (options.border_sides.columns(), options.border_sides.rows())
+        } else {
+            (0, 0)
+        };
         let padding = options.padding.saturating_mul(2);
-        let inner = width.saturating_sub(frame).saturating_sub(padding);
+        let inner = width.saturating_sub(frame_columns).saturating_sub(padding);
 
         // Mirrors `resolve_child_area`: flow children stack with a blank row
         // between them; positioned children only need to fit.
@@ -259,21 +576,23 @@ impl Widget for Div {
             }
         }
 
-        // Mirrors `content_area`: a title outside a border takes its own rows.
-        let title_rows = match &options.title {
-            Some(title) if !options.border => {
-                let layout = title.layout();
-                layout
+        // Mirrors `content_area`: a title and a footer outside a border take their own rows.
+        let label_rows = if options.border {
+            0
+        } else {
+            let title = options.title.as_ref().map_or(0, |title| {
+                title
+                    .layout()
                     .y
                     .unwrap_or(0)
-                    .saturating_add(layout.height.unwrap_or_else(|| title.default_height()))
-            }
-            _ => 0,
+                    .saturating_add(label_rows(title))
+            });
+            title.saturating_add(options.footer.as_ref().map_or(0, label_rows))
         };
 
         let content = flow.unwrap_or(0).max(placed);
-        (frame + padding)
-            .saturating_add(title_rows)
+        (frame_rows + padding)
+            .saturating_add(label_rows)
             .saturating_add(content)
             .max(self.default_height())
     }
@@ -321,22 +640,24 @@ fn content_area(canvas: &Canvas, options: &DivOptions) -> Area {
     let mut h = canvas.height();
 
     if options.border {
-        x += 1;
-        y += 1;
-        w = w.saturating_sub(2);
-        h = h.saturating_sub(2);
-    }
-
-    if let Some(title) = &options.title {
-        if !options.border {
-            let title_y = title.layout().y.unwrap_or(0);
-            let title_h = title
+        let sides = options.border_sides;
+        x += u16::from(sides.left);
+        y += u16::from(sides.top);
+        w = w.saturating_sub(sides.columns());
+        h = h.saturating_sub(sides.rows());
+    } else {
+        // Without a border, a title and a footer take rows of their own.
+        if let Some(title) = &options.title {
+            let title_rows = title
                 .layout()
-                .height
-                .unwrap_or_else(|| title.default_height());
-            let title_rows = title_y.saturating_add(title_h);
+                .y
+                .unwrap_or(0)
+                .saturating_add(label_rows(title));
             y += title_rows;
             h = h.saturating_sub(title_rows);
+        }
+        if let Some(footer) = &options.footer {
+            h = h.saturating_sub(label_rows(footer));
         }
     }
 
@@ -444,51 +765,117 @@ fn render_children_incremental(
     }
 }
 
-fn draw_border(canvas: &mut Canvas, title: Option<&Text>, buttons: &[Button]) {
+// One edge of a border: the row or column it runs along, the span it may use between the
+// corners, and the label drawn into it.
+struct Edge<'a> {
+    // The row of a horizontal edge, or the column of a vertical one.
+    line: u16,
+    // The first cell the edge may use, and one past the last: the corners are outside it.
+    start: u16,
+    end: u16,
+    side: BorderSide,
+    label: Option<&'a Text>,
+    align: Align,
+}
+
+fn draw_border(canvas: &mut Canvas, options: &DivOptions) {
     let w = canvas.width();
     let h = canvas.height();
     if w == 0 || h == 0 {
         return;
     }
 
-    canvas.set(0, 0, Cell::new('╭'));
-    canvas.set(w - 1, 0, Cell::new('╮'));
-    canvas.set(0, h - 1, Cell::new('╰'));
-    canvas.set(w - 1, h - 1, Cell::new('╯'));
+    let sides = options.border_sides;
+    let chars = options.border_style.chars();
 
-    draw_horizontal_border(canvas, 0, w, title, buttons, BorderSide::Top);
+    // Cells the edges run between: an edge that isn't drawn leaves no corner to avoid.
+    let x_start = u16::from(sides.left);
+    let x_end = w.saturating_sub(u16::from(sides.right));
+    let y_start = u16::from(sides.top);
+    let y_end = h.saturating_sub(u16::from(sides.bottom));
 
-    if h > 1 {
-        draw_horizontal_border(canvas, h - 1, w, None, buttons, BorderSide::Bottom);
+    if sides.top {
+        let edge = Edge {
+            line: 0,
+            start: x_start,
+            end: x_end,
+            side: BorderSide::Top,
+            label: options.title.as_ref(),
+            align: options.title_align,
+        };
+        draw_horizontal_border(canvas, &edge, chars, &options.border_buttons);
     }
 
-    draw_vertical_border(canvas, 0, h, buttons, BorderSide::Left);
-    draw_vertical_border(canvas, w - 1, h, buttons, BorderSide::Right);
+    if sides.bottom && h > 1 {
+        let edge = Edge {
+            line: h - 1,
+            start: x_start,
+            end: x_end,
+            side: BorderSide::Bottom,
+            label: options.footer.as_ref(),
+            align: options.footer_align,
+        };
+        draw_horizontal_border(canvas, &edge, chars, &options.border_buttons);
+    }
+
+    if sides.left {
+        let edge = Edge {
+            line: 0,
+            start: y_start,
+            end: y_end,
+            side: BorderSide::Left,
+            label: None,
+            align: Align::Start,
+        };
+        draw_vertical_border(canvas, &edge, chars, &options.border_buttons);
+    }
+
+    if sides.right && w > 1 {
+        let edge = Edge {
+            line: w - 1,
+            start: y_start,
+            end: y_end,
+            side: BorderSide::Right,
+            label: None,
+            align: Align::Start,
+        };
+        draw_vertical_border(canvas, &edge, chars, &options.border_buttons);
+    }
+
+    // Corners last, and only where both of the edges meeting there are drawn. They sit on top
+    // of whatever the edges ran through that cell.
+    if sides.top && sides.left {
+        canvas.set(0, 0, Cell::new(chars.top_left));
+    }
+    if sides.top && sides.right && w > 1 {
+        canvas.set(w - 1, 0, Cell::new(chars.top_right));
+    }
+    if sides.bottom && sides.left && h > 1 {
+        canvas.set(0, h - 1, Cell::new(chars.bottom_left));
+    }
+    if sides.bottom && sides.right && w > 1 && h > 1 {
+        canvas.set(w - 1, h - 1, Cell::new(chars.bottom_right));
+    }
 }
 
 fn draw_horizontal_border(
     canvas: &mut Canvas,
-    y: u16,
-    w: u16,
-    title: Option<&Text>,
+    edge: &Edge,
+    chars: BorderChars,
     buttons: &[Button],
-    side: BorderSide,
 ) {
-    if w <= 2 {
+    if edge.start >= edge.end {
         return;
     }
 
-    let mut occupied = vec![false; w as usize];
-    occupied[0] = true;
-    occupied[(w - 1) as usize] = true;
+    let y = edge.line;
+    let mut occupied = vec![false; canvas.width() as usize];
 
-    let mut x = 1_u16;
+    let mut x = edge.start;
     for button in buttons.iter().filter(|button| {
-        button.border_side() == Some(side) && button.border_align() == BorderAlign::Start
+        button.border_side() == Some(edge.side) && button.border_align() == BorderAlign::Start
     }) {
-        let width = button
-            .default_width()
-            .min(w.saturating_sub(x).saturating_sub(1));
+        let width = button.default_width().min(edge.end.saturating_sub(x));
         if width == 0 {
             break;
         }
@@ -498,18 +885,19 @@ fn draw_horizontal_border(
         x = x.saturating_add(width).saturating_add(1);
     }
 
-    // Worked out before the title is drawn, so a long title is shortened
+    // Worked out before the label is drawn, so a long label is shortened
     // instead of running into them.
     let mut end_buttons = Vec::new();
-    let mut end_x = w.saturating_sub(2);
+    let mut end_x = edge.end.saturating_sub(1);
     for button in buttons
         .iter()
         .filter(|button| {
-            button.border_side() == Some(side) && button.border_align() == BorderAlign::End
+            button.border_side() == Some(edge.side) && button.border_align() == BorderAlign::End
         })
         .rev()
     {
-        let width = button.default_width().min(end_x);
+        let room = end_x.saturating_sub(edge.start).saturating_add(1);
+        let width = button.default_width().min(room);
         if width == 0 {
             break;
         }
@@ -519,29 +907,45 @@ fn draw_horizontal_border(
         end_x = x.saturating_sub(2);
     }
     // Where the leftmost end-aligned button starts. With no buttons there is
-    // nothing to leave room for, and the title runs to the corner as before.
-    let end_edge = end_buttons.last().map(|(_, x, _)| *x).unwrap_or(w);
+    // nothing to leave room for, and the label runs to the corner as before.
+    let label_limit = end_buttons
+        .last()
+        .map(|(_, x, _)| *x)
+        .unwrap_or_else(|| edge.end.saturating_add(1));
 
-    if side == BorderSide::Top {
-        if let Some(title) = title {
-            let title_x = title.layout().x.unwrap_or(2).max(x);
-            if title_x > 0 && title_x < w {
-                canvas.set(title_x - 1, y, Cell::new(' '));
-                occupied[(title_x - 1) as usize] = true;
+    if let Some(label) = edge.label {
+        // The span the label may use: after the start buttons, before the end ones.
+        let span_start = label
+            .layout()
+            .x
+            .unwrap_or_else(|| edge.start.saturating_add(1))
+            .max(x);
+        // Leave a blank border cell between the label and whatever follows.
+        let span = label_limit
+            .saturating_sub(span_start)
+            .saturating_sub(1)
+            .min(edge.end.saturating_sub(span_start.min(edge.end)));
+        let width = label.default_width().min(span);
+
+        if width > 0 {
+            // A label with room to spare keeps a blank cell between itself and whatever
+            // follows, as a start-aligned one does. One that fills its span runs right up to
+            // the corner instead, rather than losing another character to the gap.
+            let room = if width < span { span - 1 } else { span };
+            let label_x = span_start.saturating_add(edge.align.offset(width, room));
+
+            if label_x > 0 {
+                canvas.set(label_x - 1, y, Cell::new(' '));
+                mark_horizontal(&mut occupied, label_x - 1, 1);
             }
 
-            // Leave a blank border cell between the title and whatever follows.
-            let max_title_width = end_edge.saturating_sub(title_x).saturating_sub(1);
-            let title_width = title.default_width().min(max_title_width);
-            if title_width > 0 {
-                title.render(&mut canvas.subcanvas(title_x, y, title_width, 1));
-                mark_horizontal(&mut occupied, title_x, title_width);
+            label.render(&mut canvas.subcanvas(label_x, y, width, 1));
+            mark_horizontal(&mut occupied, label_x, width);
 
-                let after_title = title_x.saturating_add(title_width);
-                if after_title + 1 < w.saturating_sub(1) {
-                    canvas.set(after_title, y, Cell::new(' '));
-                    occupied[after_title as usize] = true;
-                }
+            let after = label_x.saturating_add(width);
+            if after < edge.end {
+                canvas.set(after, y, Cell::new(' '));
+                mark_horizontal(&mut occupied, after, 1);
             }
         }
     }
@@ -551,32 +955,31 @@ fn draw_horizontal_border(
         mark_horizontal(&mut occupied, x, width);
     }
 
-    for x in 1..w.saturating_sub(1) {
+    for x in edge.start..edge.end {
         if !occupied[x as usize] {
-            canvas.set(x, y, Cell::new('─'));
+            canvas.set(x, y, Cell::new(chars.horizontal));
         }
     }
 }
 
-fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button], side: BorderSide) {
-    if h <= 2 {
+fn draw_vertical_border(canvas: &mut Canvas, edge: &Edge, chars: BorderChars, buttons: &[Button]) {
+    if edge.start >= edge.end {
         return;
     }
 
-    let mut occupied = vec![false; h as usize];
-    occupied[0] = true;
-    occupied[(h - 1) as usize] = true;
+    let x = edge.line;
+    let mut occupied = vec![false; canvas.height() as usize];
 
-    let mut y = 1_u16;
+    let mut y = edge.start;
     for button in buttons.iter().filter(|button| {
-        button.border_side() == Some(side) && button.border_align() == BorderAlign::Start
+        button.border_side() == Some(edge.side) && button.border_align() == BorderAlign::Start
     }) {
         let segment: Vec<char> = button
             .display_text()
             .chars()
             .filter(|ch| ch.width().unwrap_or(0) > 0)
             .collect();
-        let height = (segment.len() as u16).min(h.saturating_sub(y).saturating_sub(1));
+        let height = (segment.len() as u16).min(edge.end.saturating_sub(y));
         if height == 0 {
             break;
         }
@@ -589,18 +992,20 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
             canvas
                 .subcanvas(x, y_pos, 1, 1)
                 .set(0, 0, Cell { ch: *ch, ..style });
-            occupied[y_pos as usize] = true;
+            if let Some(slot) = occupied.get_mut(y_pos as usize) {
+                *slot = true;
+            }
         }
         let area = canvas.subcanvas(x, y, 1, height).global_area();
         button.register_input(area, Some(focus));
         y = y.saturating_add(height).saturating_add(1);
     }
 
-    let mut end_y = h.saturating_sub(2);
+    let mut end_y = edge.end.saturating_sub(1);
     for button in buttons
         .iter()
         .filter(|button| {
-            button.border_side() == Some(side) && button.border_align() == BorderAlign::End
+            button.border_side() == Some(edge.side) && button.border_align() == BorderAlign::End
         })
         .rev()
     {
@@ -610,7 +1015,8 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
             .filter(|ch| ch.width().unwrap_or(0) > 0)
             .collect();
         let seg_len = segment.len() as u16;
-        if seg_len == 0 || seg_len > end_y {
+        let room = end_y.saturating_sub(edge.start).saturating_add(1);
+        if seg_len == 0 || seg_len > room {
             continue;
         }
 
@@ -622,16 +1028,18 @@ fn draw_vertical_border(canvas: &mut Canvas, x: u16, h: u16, buttons: &[Button],
             canvas
                 .subcanvas(x, y_pos, 1, 1)
                 .set(0, 0, Cell { ch: *ch, ..style });
-            occupied[y_pos as usize] = true;
+            if let Some(slot) = occupied.get_mut(y_pos as usize) {
+                *slot = true;
+            }
         }
         let area = canvas.subcanvas(x, y, 1, seg_len).global_area();
         button.register_input(area, Some(focus));
         end_y = y.saturating_sub(2);
     }
 
-    for y in 1..h.saturating_sub(1) {
+    for y in edge.start..edge.end {
         if !occupied[y as usize] {
-            canvas.set(x, y, Cell::new('│'));
+            canvas.set(x, y, Cell::new(chars.vertical));
         }
     }
 }
@@ -644,31 +1052,52 @@ fn mark_horizontal(occupied: &mut [bool], x: u16, width: u16) {
     }
 }
 
-fn draw_title(canvas: &mut Canvas, title: &Text) {
-    let x = title.layout().x.unwrap_or(0);
-    let y = title.layout().y.unwrap_or(0);
-    let width = title
-        .layout()
-        .width
-        .unwrap_or_else(|| title.default_width())
-        .min(canvas.width().saturating_sub(x));
-    let height = title
+// Rows a title or footer takes when there is no border to draw it into.
+fn label_rows(label: &Text) -> u16 {
+    label
         .layout()
         .height
-        .unwrap_or_else(|| title.default_height())
-        .min(canvas.height().saturating_sub(y));
+        .unwrap_or_else(|| label.default_height())
+}
+
+fn draw_title(canvas: &mut Canvas, title: &Text, align: Align) {
+    let y = title.layout().y.unwrap_or(0);
+    draw_loose_label(canvas, title, align, y);
+}
+
+fn draw_footer(canvas: &mut Canvas, footer: &Text, align: Align) {
+    let y = canvas.height().saturating_sub(label_rows(footer));
+    draw_loose_label(canvas, footer, align, y);
+}
+
+// A title or footer on a row of its own, with no border around it.
+fn draw_loose_label(canvas: &mut Canvas, label: &Text, align: Align, y: u16) {
+    let available = canvas.width();
+    let width = label
+        .layout()
+        .width
+        .unwrap_or_else(|| label.default_width())
+        .min(available);
+    let x = label
+        .layout()
+        .x
+        .unwrap_or_else(|| align.offset(width, available));
+
+    let width = width.min(available.saturating_sub(x));
+    let height = label_rows(label).min(canvas.height().saturating_sub(y));
 
     if width == 0 || height == 0 {
         return;
     }
 
-    title.render(&mut canvas.subcanvas(x, y, width, height));
+    label.render(&mut canvas.subcanvas(x, y, width, height));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::dispatch_input;
+    use crate::testing::render_to_text;
     use crate::{Area, Buffer, Text};
 
     fn render_div(div: &Div, width: u16, height: u16) -> Buffer {
@@ -1151,5 +1580,259 @@ mod tests {
 
         let top: String = (0..24).map(|x| buf.get(x, 0).unwrap().ch).collect();
         assert_eq!(top, "╭ A rather long tit ╮x╭╮");
+    }
+    #[test]
+    fn every_border_style_draws_its_own_characters() {
+        let styles = [
+            (BorderStyle::Rounded, "╭─╮\n│ │\n╰─╯"),
+            (BorderStyle::Square, "┌─┐\n│ │\n└─┘"),
+            (BorderStyle::Double, "╔═╗\n║ ║\n╚═╝"),
+            (BorderStyle::Thick, "┏━┓\n┃ ┃\n┗━┛"),
+            (BorderStyle::Ascii, "+-+\n| |\n+-+"),
+        ];
+
+        for (style, expected) in styles {
+            let div = Div::new().border(true).border_style(style);
+            assert_eq!(render_to_text(&div, 3, 3), expected, "{style:?}");
+        }
+    }
+
+    #[test]
+    fn a_custom_style_draws_the_characters_it_is_given() {
+        let chars = BorderChars {
+            top_left: '1',
+            top_right: '2',
+            bottom_left: '3',
+            bottom_right: '4',
+            horizontal: '=',
+            vertical: '!',
+        };
+        let div = Div::new()
+            .border(true)
+            .border_style(BorderStyle::Custom(chars));
+
+        assert_eq!(render_to_text(&div, 3, 3), "1=2\n! !\n3=4");
+    }
+
+    #[test]
+    fn one_edge_on_its_own_runs_the_whole_way_with_no_corners() {
+        let div = Div::new().border(true).border_sides(BorderSides::top());
+        assert_eq!(render_to_text(&div, 3, 2), "───\n   ");
+
+        let div = Div::new().border(true).border_sides(BorderSides::bottom());
+        assert_eq!(render_to_text(&div, 3, 2), "   \n───");
+    }
+
+    #[test]
+    fn horizontal_and_vertical_sets_draw_two_edges() {
+        let div = Div::new()
+            .border(true)
+            .border_sides(BorderSides::horizontal());
+        assert_eq!(render_to_text(&div, 3, 3), "───\n   \n───");
+
+        let div = Div::new()
+            .border(true)
+            .border_sides(BorderSides::vertical());
+        assert_eq!(render_to_text(&div, 3, 3), "│ │\n│ │\n│ │");
+    }
+
+    #[test]
+    fn a_dropped_edge_takes_its_corners_with_it() {
+        let sides = BorderSides {
+            bottom: false,
+            ..BorderSides::all()
+        };
+        let div = Div::new().border(true).border_sides(sides);
+
+        assert_eq!(render_to_text(&div, 3, 3), "╭─╮\n│ │\n│ │");
+    }
+
+    #[test]
+    fn no_sides_at_all_draws_nothing() {
+        let div = Div::new().border(true).border_sides(BorderSides::none());
+        assert_eq!(render_to_text(&div, 3, 2), "   \n   ");
+    }
+
+    #[test]
+    fn content_fills_the_room_an_undrawn_edge_would_have_taken() {
+        let div = Div::new()
+            .border(true)
+            .border_sides(BorderSides::bottom())
+            .child(Text::new("hi"));
+
+        assert_eq!(render_to_text(&div, 4, 2), "hi  \n────");
+    }
+
+    #[test]
+    fn content_sits_inside_the_edges_that_are_drawn() {
+        let sides = BorderSides {
+            left: false,
+            ..BorderSides::all()
+        };
+        let div = Div::new()
+            .border(true)
+            .border_sides(sides)
+            .child(Text::new("hi"));
+
+        assert_eq!(render_to_text(&div, 4, 3), "───╮\nhi │\n───╯");
+    }
+
+    #[test]
+    fn a_title_is_left_aligned_by_default() {
+        let div = Div::new().border(true).title(Text::new("hi"));
+        assert_eq!(render_to_text(&div, 11, 2), "╭ hi ─────╮\n╰─────────╯");
+    }
+
+    #[test]
+    fn a_title_can_be_centered_or_pushed_to_the_end() {
+        let div = Div::new()
+            .border(true)
+            .title(Text::new("hi"))
+            .title_align(Align::Center);
+        assert_eq!(render_to_text(&div, 11, 1), "╭── hi ───╮");
+
+        let div = Div::new()
+            .border(true)
+            .title(Text::new("hi"))
+            .title_align(Align::End);
+        assert_eq!(render_to_text(&div, 11, 1), "╭───── hi ╮");
+    }
+
+    #[test]
+    fn a_centered_title_keeps_clear_of_the_border_buttons() {
+        let div = Div::new()
+            .border(true)
+            .title(Text::new("hi"))
+            .title_align(Align::Center)
+            .border_button(
+                Button::border_button("x")
+                    .side(BorderSide::Top)
+                    .align(BorderAlign::End),
+            );
+        let buf = render_div(&div, 14, 2);
+        let top: String = (0..14).map(|x| buf.get(x, 0).unwrap().ch).collect();
+
+        // The button keeps its columns at the end; the title centers in what is left.
+        assert_eq!(top, "╭── hi ───╮x╭╮");
+    }
+
+    #[test]
+    fn a_footer_is_drawn_into_the_bottom_border() {
+        let div = Div::new().border(true).footer(Text::new("1/3"));
+        assert_eq!(render_to_text(&div, 9, 2), "╭───────╮\n╰ 1/3 ──╯");
+    }
+
+    #[test]
+    fn a_footer_can_be_aligned_like_a_title() {
+        let div = Div::new()
+            .border(true)
+            .footer(Text::new("1/3"))
+            .footer_align(Align::End);
+        assert_eq!(render_to_text(&div, 9, 2), "╭───────╮\n╰── 1/3 ╯");
+    }
+
+    #[test]
+    fn a_title_and_a_footer_are_drawn_on_their_own_edges() {
+        let div = Div::new()
+            .border(true)
+            .title(Text::new("top"))
+            .footer(Text::new("end"))
+            .child(Text::new("hi"));
+
+        assert_eq!(
+            render_to_text(&div, 11, 3),
+            "╭ top ────╮\n│hi       │\n╰ end ────╯"
+        );
+    }
+
+    #[test]
+    fn without_a_border_a_footer_takes_the_last_row() {
+        let div = Div::new().footer(Text::new("end")).child(Text::new("hi"));
+        assert_eq!(render_to_text(&div, 5, 3), "hi   \n     \nend  ");
+    }
+
+    #[test]
+    fn a_loose_footer_can_be_aligned() {
+        let div = Div::new().footer(Text::new("end")).footer_align(Align::End);
+        assert_eq!(render_to_text(&div, 5, 2), "     \n  end");
+    }
+
+    #[test]
+    fn a_loose_title_can_be_aligned() {
+        let div = Div::new()
+            .title(Text::new("top"))
+            .title_align(Align::Center)
+            .child(Text::new("hi"));
+
+        assert_eq!(render_to_text(&div, 7, 2), "  top  \nhi     ");
+    }
+
+    #[test]
+    fn a_loose_footer_keeps_a_row_away_from_the_content() {
+        let div = Div::new().footer(Text::new("end")).child(Text::new("hi"));
+        assert_eq!(div.height_for_width(10), 2);
+    }
+
+    #[test]
+    fn measurement_counts_only_the_edges_that_are_drawn() {
+        let child = || Text::new("hi");
+
+        let all = Div::new().border(true).child(child());
+        assert_eq!(all.height_for_width(10), 3);
+
+        let one = Div::new()
+            .border(true)
+            .border_sides(BorderSides::top())
+            .child(child());
+        assert_eq!(one.height_for_width(10), 2);
+
+        let none = Div::new()
+            .border(true)
+            .border_sides(BorderSides::none())
+            .child(child());
+        assert_eq!(none.height_for_width(10), 1);
+    }
+
+    #[test]
+    fn an_empty_div_is_as_tall_as_the_edges_it_draws() {
+        assert_eq!(Div::new().border(true).default_height(), 3);
+        assert_eq!(
+            Div::new()
+                .border(true)
+                .border_sides(BorderSides::top())
+                .default_height(),
+            2
+        );
+        assert_eq!(Div::new().default_height(), 1);
+    }
+
+    #[test]
+    fn wrapping_measures_against_the_width_the_edges_leave() {
+        let text = || Text::new("hello world").wrap(true);
+
+        let all = Div::new().border(true).child(text());
+        // Twelve columns wide, the border leaves ten: "hello" then "world".
+        assert_eq!(all.height_for_width(12), 4);
+
+        let sides = BorderSides {
+            left: false,
+            right: false,
+            ..BorderSides::all()
+        };
+        let open = Div::new().border(true).border_sides(sides).child(text());
+        // The same twelve columns now all go to the text, which fits on one row.
+        assert_eq!(open.height_for_width(12), 3);
+    }
+
+    #[test]
+    fn a_border_in_a_single_row_draws_only_the_top() {
+        let div = Div::new().border(true);
+        assert_eq!(render_to_text(&div, 3, 1), "╭─╮");
+    }
+
+    #[test]
+    fn a_border_in_a_single_column_draws_only_the_left() {
+        let div = Div::new().border(true);
+        assert_eq!(render_to_text(&div, 1, 3), "╭\n│\n╰");
     }
 }
