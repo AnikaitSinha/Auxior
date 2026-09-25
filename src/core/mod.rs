@@ -8,6 +8,7 @@ mod keymap;
 mod mouse;
 mod render;
 mod terminal;
+pub mod testing;
 
 pub use app::{App, AppConfig, AppEvent, ControlFlow};
 pub use buffer::Buffer;

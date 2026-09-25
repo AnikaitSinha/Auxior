@@ -38,8 +38,22 @@ below describes 0.1.0 as it stands.
   and the renderer.
 - The terminal is restored on exit and on panic, with the panic message readable.
 
+### Testing
+
+- `testing::TestTerminal` draws widgets onto a pretend screen with no terminal,
+  and reads it back as text, as cells, or as one character per column for
+  checking colours and attributes.
+- Consecutive frames are kept, so `changed()` reports what a terminal would have
+  had to redraw and `dirty()` what the frame marked as redrawn, which is how a
+  widget that changes cells without marking them gets caught.
+- `assert_text` and `assert_row` ignore trailing space and blank rows, and print
+  both screens on a mismatch. `testing::render_to_text` covers the single-frame
+  case.
+- `Buffer::row_text` and `Buffer::to_text` read a buffer back as text, skipping
+  the continuation cell after a double-width character.
+
 ### Documentation
 
-- A 31-page guide covering the engine, the concepts and every widget, published
+- A 32-page guide covering the engine, the concepts and every widget, published
   with the API reference and readable as Markdown in `src/docs/`.
 - Doc comments on every public item, with runnable examples that run as tests.

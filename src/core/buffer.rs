@@ -108,6 +108,57 @@ impl Buffer {
         &self.cells
     }
 
+    /// Row `y` as text, as it appears on screen.
+    ///
+    /// The right half of a double-width character is skipped, because the character itself
+    /// already covers that column, so the returned string has the same display width as the
+    /// buffer (apart from any zero-width characters in it). A row outside the buffer is empty.
+    ///
+    /// ```
+    /// use auxior::{Buffer, Cell};
+    ///
+    /// let mut buf = Buffer::new(4, 1);
+    /// buf.set(0, 0, Cell::new('h'));
+    /// buf.set(1, 0, Cell::new('i'));
+    ///
+    /// assert_eq!(buf.row_text(0), "hi  ");
+    /// ```
+    pub fn row_text(&self, y: u16) -> String {
+        let mut text = String::with_capacity(self.width as usize);
+        for x in 0..self.width {
+            match self.get(x, y) {
+                Some(cell) if !cell.is_continuation() => text.push(cell.ch),
+                _ => {}
+            }
+        }
+        text
+    }
+
+    /// Every row as text, joined with newlines.
+    ///
+    /// Rows keep their trailing spaces, so every line is as wide as the buffer. See
+    /// [`row_text`](Buffer::row_text) for how double-width characters are handled.
+    ///
+    /// ```
+    /// use auxior::{Buffer, Cell};
+    ///
+    /// let mut buf = Buffer::new(2, 2);
+    /// buf.set(0, 0, Cell::new('a'));
+    /// buf.set(1, 1, Cell::new('b'));
+    ///
+    /// assert_eq!(buf.to_text(), "a \n b");
+    /// ```
+    pub fn to_text(&self) -> String {
+        let mut text = String::with_capacity((self.width as usize + 1) * self.height as usize);
+        for y in 0..self.height {
+            if y > 0 {
+                text.push('\n');
+            }
+            text.push_str(&self.row_text(y));
+        }
+        text
+    }
+
     /// Makes this buffer a copy of `other_buffer`, resizing it if needed.
     pub fn copy_buffer_from(&mut self, other_buffer: &Buffer) {
         if self.height != other_buffer.height || self.width != other_buffer.width {

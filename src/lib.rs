@@ -53,6 +53,7 @@
 //! - Composites: [`List`], [`Table`], [`StatusBar`], [`SparklineGraph`]
 //! - Input: [`KeyBinding`], [`Focus`], and mouse events through [`AppConfig::mouse_capture()`]
 //! - Your own widgets: implement [`Widget`]
+//! - Testing: [`testing::TestTerminal`] draws widgets without a terminal
 
 #![warn(missing_docs)]
 
@@ -70,15 +71,17 @@ pub use crossterm::event::{
 };
 pub use crossterm::style::Color;
 
+pub use core::testing;
+
 pub use composites::{List, SparklineGraph, StatusBar, StatusType, Table};
 pub use core::{
     App, AppConfig, AppEvent, Area, Buffer, Canvas, Cell, ControlFlow, Focus, FocusId, FrameStats,
     KeyBinding, RenderContext, Terminal,
 };
 pub use widgets::{
-    Bar, BorderAlign, BorderSide, Button, Direction, Div, DivOptions, Filter, Flex, FlexDirection,
-    Grid, Heading, Input, InputState, LayoutOptions, Markdown, ScrollGraph, ScrollState,
-    ScrollView, Text, Widget,
+    Animation, AnimationState, Bar, BorderAlign, BorderSide, Button, Direction, Div, DivOptions,
+    Filter, Fit, Flex, FlexDirection, Grid, Heading, Image, Input, InputState, LayoutOptions,
+    Markdown, Picture, PixelMode, Repeat, ScrollGraph, ScrollState, ScrollView, Text, Widget,
 };
 
 pub use media::{GifFrame, RawGif};

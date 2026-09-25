@@ -24,6 +24,8 @@ should show, and Auxior works out what to redraw.
   frame, with the cursor moved and colours changed only when needed.
 - **Careful with your terminal** — raw mode and the alternate screen are
   restored on exit, and on a panic, with the panic message left readable.
+- **Testable** — `testing::TestTerminal` draws widgets with no terminal at all
+  and reads the screen back as text, so widgets can be checked in unit tests.
 
 ## Documentation
 

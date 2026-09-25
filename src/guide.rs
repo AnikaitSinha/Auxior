@@ -45,6 +45,9 @@ pub mod concepts {
 
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/concepts/custom-widgets.md"))]
     pub mod custom_widgets {}
+
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/concepts/testing.md"))]
+    pub mod testing {}
 }
 
 pub mod widgets {

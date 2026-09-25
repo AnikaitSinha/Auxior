@@ -12,3 +12,5 @@ The ideas you work with when building an interface with Auxior.
   space.
 - [Writing your own widgets](custom-widgets.md) walks through
   implementing [`Widget`](crate::Widget).
+- [Testing widgets](testing.md) draws widgets without a terminal
+  and checks what they put on screen.
