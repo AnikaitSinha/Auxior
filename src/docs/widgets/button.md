@@ -41,6 +41,23 @@ let add = Button::push("Add")
 | [`side`](crate::Button::side), [`align`](crate::Button::align) | Where a border button sits. |
 | `width`, `height`, `flex`, `x`, `y` | Layout. |
 
+## Reading a button back
+
+Every setting can be read again, which is what a container needs to place a
+button it was handed:
+
+| Method | Gives you |
+|---|---|
+| [`label()`](crate::Button::label) | The label text. |
+| [`state()`](crate::Button::state) | Whether a toggle shows as on. |
+| [`fg_color()`](crate::Button::fg_color) | The label color. |
+| [`is_border_button()`](crate::Button::is_border_button) | Whether this button is drawn into a border. |
+| [`border_side()`](crate::Button::border_side) | Which edge it sits on, or `None` if it isn't a border button. |
+| [`border_align()`](crate::Button::border_align) | Whether it's placed from the start or the end of that edge. |
+
+[`Div`](crate::Div) uses the last three to lay its border buttons out; your own
+container can do the same.
+
 ## State belongs to you
 
 A button doesn't remember anything between frames. A toggle doesn't flip itself

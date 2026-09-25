@@ -16,12 +16,18 @@ use auxior::{Cell, Color};
 
 let plain = Cell::new('a');
 let warning = Cell::with_fg('!', Color::Yellow).set_bold();
+let quiet = Cell::new('n').set_italic().set_underline();
 let blank = Cell::empty(); // A space in the terminal's default colors.
+# let _ = quiet;
 
 assert!(warning.b && !warning.i);
 assert_eq!(blank.ch, ' ');
 # let _ = plain;
 ```
+
+[`set_bold`](crate::Cell::set_bold), [`set_italic`](crate::Cell::set_italic) and
+[`set_underline`](crate::Cell::set_underline) each return the cell, so they chain,
+and the fields `b`, `i` and `u` can be read or set directly.
 
 Cells are small `Copy` values, and two cells are equal only when every field is
 equal. That equality is exactly what the renderer uses to decide whether a
@@ -48,6 +54,44 @@ buf.set(99, 99, Cell::new('!')); // Outside: ignored.
 assert_eq!(buf.get(1, 0).unwrap().ch, 'x');
 assert!(buf.get(99, 99).is_none());
 ```
+
+### Reading a buffer back
+
+A buffer can be read whole as well as cell by cell, which is mostly what tests
+do:
+
+| Method | Gives you |
+|---|---|
+| [`row_text(y)`](crate::Buffer::row_text) | One row as a `String`, as it appears on screen. |
+| [`to_text()`](crate::Buffer::to_text) | Every row, joined with newlines. |
+| [`as_slice()`](crate::Buffer::as_slice) | Every cell, row by row from the top. |
+| [`all_coords()`](crate::Buffer::all_coords) | Every `(x, y)` in the buffer, in the same order. |
+
+`row_text` and `to_text` skip the continuation cell after a double-width
+character, because the character itself already covers that column.
+
+```rust
+use auxior::{Buffer, Cell};
+
+let mut buf = Buffer::new(3, 2);
+buf.set(0, 0, Cell::new('日'));
+buf.set(2, 1, Cell::new('x'));
+
+assert_eq!(buf.row_text(0), "日 ");
+assert_eq!(buf.to_text(), "日 \n  x");
+```
+
+Two buffers can also be copied between:
+[`copy_buffer_from`](crate::Buffer::copy_buffer_from) replaces this buffer with a
+copy of another, resizing if the sizes differ, and
+[`copy_region`](crate::Buffer::copy_region) copies one rectangle into another,
+clipped to both. The frame loop uses the first to keep the previous frame, and
+[`Div`](crate::Div) uses the second to reuse parts of it when drawing
+incrementally.
+
+For testing widgets, [`TestTerminal`](crate::testing::TestTerminal) wraps these up
+with a previous frame and assertions — see
+[Testing widgets](../concepts/testing.md).
 
 ## Wide characters
 

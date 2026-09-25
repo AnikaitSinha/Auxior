@@ -31,25 +31,29 @@
 //!
 //! # Without a terminal
 //!
-//! Widgets draw onto a [`Canvas`] over any [`Buffer`], so a screen can be drawn and checked in
-//! a test:
+//! Widgets draw onto a [`Canvas`] over any [`Buffer`], neither of which needs a terminal, so a
+//! screen can be drawn and checked in a test:
 //!
 //! ```
-//! use auxior::{Area, Buffer, Canvas, Text, Widget};
+//! use auxior::Text;
+//! use auxior::testing::TestTerminal;
 //!
-//! let mut buf = Buffer::new(12, 1);
-//! let area = Area::new_from_buffer(&buf);
-//! Text::new("Hello").render(&mut Canvas::new(&mut buf, area));
+//! let mut term = TestTerminal::new(12, 1);
+//! term.draw(&Text::new("Hello"));
 //!
-//! assert_eq!(buf.get(0, 0).unwrap().ch, 'H');
+//! term.assert_text("Hello");
 //! ```
+//!
+//! See [`testing`] for reading colors back, comparing frames, and drawing onto a canvas
+//! directly.
 //!
 //! # What's here
 //!
 //! - Running an app: [`App`], [`AppConfig`], [`AppEvent`], [`ControlFlow`]
 //! - Drawing: [`Buffer`], [`Canvas`], [`Area`], [`Cell`], [`Color`]
 //! - Layout: [`Div`], [`Flex`], [`Grid`], [`ScrollView`]
-//! - Content: [`Text`], [`Markdown`], [`Button`], [`Input`], [`Bar`], [`ScrollGraph`]
+//! - Content: [`Text`], [`Markdown`], [`Button`], [`Input`], [`Bar`], [`ScrollGraph`],
+//!   [`Image`]
 //! - Composites: [`List`], [`Table`], [`StatusBar`], [`SparklineGraph`]
 //! - Input: [`KeyBinding`], [`Focus`], and mouse events through [`AppConfig::mouse_capture()`]
 //! - Your own widgets: implement [`Widget`]
@@ -79,9 +83,10 @@ pub use core::{
     KeyBinding, RenderContext, Terminal,
 };
 pub use widgets::{
-    Animation, AnimationState, Bar, BorderAlign, BorderSide, Button, Direction, Div, DivOptions,
-    Filter, Fit, Flex, FlexDirection, Grid, Heading, Image, Input, InputState, LayoutOptions,
-    Markdown, Picture, PixelMode, Repeat, ScrollGraph, ScrollState, ScrollView, Text, Widget,
+    Align, Animation, AnimationState, Bar, BorderAlign, BorderSide, Button, Direction, Div,
+    DivOptions, Filter, Fit, Flex, FlexDirection, Grid, Heading, Image, Input, InputState,
+    LayoutOptions, Markdown, Picture, PixelMode, Repeat, ScrollGraph, ScrollState, ScrollView,
+    Text, Widget,
 };
 
 pub use media::{GifFrame, RawGif};

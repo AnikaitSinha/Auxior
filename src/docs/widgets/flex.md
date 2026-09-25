@@ -30,10 +30,37 @@ assert_eq!(buf.get(8, 1).unwrap().ch, 'b');
 |---|---|---|
 | [`row()`](crate::Flex::row) | | Children left to right. |
 | [`column()`](crate::Flex::column) | | Children top to bottom. |
-| [`direction(d)`](crate::Flex::direction) | | Chooses the axis at run time, instead of `row()` or `column()`. |
+| [`direction(d)`](crate::Flex::direction) | | Takes a [`FlexDirection`](crate::FlexDirection), to choose the axis at run time instead of with `row()` or `column()`. |
 | [`gap(n)`](crate::Flex::gap) | 0 | Blank cells between neighboring children. |
 | [`child(widget)`](crate::Flex::child) | | Adds a child after the previous ones. |
 | `width`, `height`, `flex`, `x`, `y` | | Layout of the flex itself. |
+
+## Choosing the direction at run time
+
+`Flex::row()` and `Flex::column()` fix the axis where they're written. When it
+depends on something — the shape of the terminal, say — build the flex with
+[`direction`](crate::Flex::direction) and a
+[`FlexDirection`](crate::FlexDirection), which is either `Row` or `Column`:
+
+```rust
+use auxior::{Area, Buffer, Canvas, Flex, FlexDirection, Text};
+
+let mut buf = Buffer::new(20, 4);
+let wide = buf.width >= 20;
+let direction = if wide { FlexDirection::Row } else { FlexDirection::Column };
+
+let area = Area::new_from_buffer(&buf);
+Flex::row()
+    .direction(direction)
+    .child(Text::new("left"))
+    .child(Text::new("right"))
+    .render(&mut Canvas::new(&mut buf, area));
+
+assert_eq!(buf.row_text(0), "leftright           ");
+```
+
+This mirrors [`Bar`](crate::Bar), which takes a
+[`Direction`](crate::Direction) the same way.
 
 ## Sharing space
 

@@ -11,7 +11,9 @@ below describes 0.1.0 as it stands.
 
 ### Widgets
 
-- `Text` with colours, attributes and optional word wrapping.
+- `Text` with colours, attributes and optional word wrapping, alignment
+  (`Align::Start`, `Center` or `End`) and an optional `…` where text is cut
+  short, either across a row or where rows run out.
 - `Button` in push, toggle and border forms, fired by a key, by Enter or Space
   while focused, or by a click.
 - `Input`: single-line text, password and number fields, with character filters,
@@ -22,6 +24,10 @@ below describes 0.1.0 as it stands.
   newly focused widget into view.
 - `Bar` and `ScrollGraph`, plus the `List`, `Table`, `StatusBar` and
   `SparklineGraph` composites.
+- `Image`: pictures and animations drawn as half blocks, braille or ASCII, sampled
+  afresh for whatever space they are given and corrected for the shape of a cell.
+  Playback follows the wall clock through `AnimationState`, so an animation keeps
+  its own timing whatever rate the application draws at.
 - `Div`, `Flex` and `Grid` for layout, with fixed sizes, flex weights and
   width-aware measurement.
 
@@ -54,6 +60,6 @@ below describes 0.1.0 as it stands.
 
 ### Documentation
 
-- A 32-page guide covering the engine, the concepts and every widget, published
-  with the API reference and readable as Markdown in `src/docs/`.
+- A 33-page guide covering the engine, the concepts, every widget and testing,
+  published with the API reference and readable as Markdown in `src/docs/`.
 - Doc comments on every public item, with runnable examples that run as tests.

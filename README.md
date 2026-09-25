@@ -11,9 +11,11 @@ should show, and Auxior works out what to redraw.
 
 - **Layout** — `Div` for bordered boxes that stack their children, `Flex` for
   rows and columns that share space, `Grid` for rows and columns together.
-- **Content** — styled and wrapping `Text`, `Markdown` (CommonMark, including
-  tables), `Button`, `Input` (text, password and number fields), `Bar` and
-  braille graphs.
+- **Content** — `Text` with styles, wrapping, alignment and ellipsis,
+  `Markdown` (CommonMark, including tables), `Button`, `Input` (text, password
+  and number fields), `Bar` and braille graphs.
+- **Pictures** — `Image` draws a picture or plays an animation as half blocks,
+  braille or ASCII, re-sampled whenever the terminal changes size.
 - **Composites** — `List`, `Table`, `StatusBar` and `SparklineGraph`.
 - **Scrolling** — `ScrollView` with keyboard, wheel and scroll-into-view.
 - **Input** — key bindings with modifiers, Tab focus traversal, mouse clicks and

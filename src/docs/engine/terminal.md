@@ -62,6 +62,11 @@ clicking and dragging no longer selects text. That's why mouse capture is
 opt-in, through [`AppConfig::mouse_capture`](crate::AppConfig::mouse_capture()).
 When it's on, restoring the terminal turns it off again, including after a panic.
 
+Without an `App`, the same thing is done by
+[`Terminal::enable_mouse_capture`](crate::Terminal::enable_mouse_capture), which
+turns reporting on and records that it has to be turned off again. Calling it
+more than once is harmless.
+
 ## Drawing without the frame loop
 
 [`Terminal::draw`](crate::Terminal::draw) draws a single frame: it gives you a
@@ -70,8 +75,22 @@ and no input, so it suits one-off output rather than interactive apps.
 
 ## Testing without a terminal
 
-Nothing about widgets or buffers needs a real terminal. To test what a widget
-draws, draw it onto a [`Canvas`](crate::Canvas) over a
-[`Buffer`](crate::Buffer) and inspect the cells, as the examples throughout this
-guide do. Only `App` and `Terminal` need a terminal, and their examples are
-marked not to run in tests.
+Nothing about widgets or buffers needs a real terminal. A widget draws onto a
+[`Canvas`](crate::Canvas) over a [`Buffer`](crate::Buffer), and both work
+anywhere — no tty, no raw mode, no alternate screen.
+
+[`TestTerminal`](crate::testing::TestTerminal) wraps that up as a pretend screen
+that draws frames and reads them back as text:
+
+```rust
+use auxior::Text;
+use auxior::testing::TestTerminal;
+
+let mut term = TestTerminal::new(6, 1);
+term.draw(&Text::new("hi"));
+
+term.assert_text("hi");
+```
+
+Only `App` and `Terminal` need a real terminal, and their examples are marked not
+to run in tests. See [Testing widgets](../concepts/testing.md) for the rest.

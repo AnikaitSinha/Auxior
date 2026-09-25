@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ops::Range;
 
 use unicode_width::UnicodeWidthChar;
@@ -7,6 +8,38 @@ use crate::{Canvas, Cell};
 use crossterm::style::Color;
 
 use crate::{LayoutOptions, Widget};
+
+/// Where a row of text sits within the width it is given.
+///
+/// ```
+/// use auxior::{Align, Text};
+/// use auxior::testing::render_to_text;
+///
+/// let centered = Text::new("hi").align(Align::Center);
+/// assert_eq!(render_to_text(&centered, 6, 1), "  hi  ");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Align {
+    /// Against the left edge.
+    #[default]
+    Start,
+    /// Centered, with any odd column left over going to the right.
+    Center,
+    /// Against the right edge.
+    End,
+}
+
+impl Align {
+    // Columns to leave before `content` so it sits correctly in `available`.
+    pub(crate) fn offset(self, content: u16, available: u16) -> u16 {
+        let slack = available.saturating_sub(content);
+        match self {
+            Align::Start => 0,
+            Align::Center => slack / 2,
+            Align::End => slack,
+        }
+    }
+}
 
 /// A block of text, one row per line.
 ///
@@ -33,6 +66,8 @@ pub struct Text {
     italic: bool,
     underline: bool,
     wrap: bool,
+    align: Align,
+    ellipsis: bool,
 }
 
 impl Text {
@@ -46,6 +81,8 @@ impl Text {
             italic: false,
             underline: false,
             wrap: false,
+            align: Align::default(),
+            ellipsis: false,
         }
     }
 
@@ -77,6 +114,42 @@ impl Text {
     /// Wide characters wrap by display width, and a word longer than a whole row is split.
     pub fn wrap(mut self, on: bool) -> Self {
         self.wrap = on;
+        self
+    }
+
+    /// Sets where each row sits within the width the text is given.
+    ///
+    /// Rows are aligned one by one, so wrapped text is aligned line by line rather than as a
+    /// block. A row at least as wide as the space it has is drawn from the left whatever this
+    /// is set to.
+    ///
+    /// ```
+    /// use auxior::{Align, Text};
+    /// use auxior::testing::render_to_text;
+    ///
+    /// assert_eq!(render_to_text(&Text::new("hi").align(Align::End), 5, 1), "   hi");
+    /// ```
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = align;
+        self
+    }
+
+    /// Sets whether text that does not fit ends with an ellipsis (`…`) instead of simply
+    /// stopping at the edge.
+    ///
+    /// A row too wide for its space is cut short, and the last row is cut short as well when
+    /// there are more rows than fit. The ellipsis takes a column of its own, so one more
+    /// character is dropped to make room for it.
+    ///
+    /// ```
+    /// use auxior::Text;
+    /// use auxior::testing::render_to_text;
+    ///
+    /// let long = Text::new("hello world").ellipsis(true);
+    /// assert_eq!(render_to_text(&long, 8, 1), "hello w…");
+    /// ```
+    pub fn ellipsis(mut self, on: bool) -> Self {
+        self.ellipsis = on;
         self
     }
 
@@ -143,15 +216,31 @@ impl Widget for Text {
             style = style.set_underline();
         }
 
-        for (row, line) in self.rows(canvas.width()).into_iter().enumerate() {
+        let width = canvas.width();
+        if width == 0 || max_h == 0 {
+            return;
+        }
+
+        let rows = self.rows(width);
+        let shown = rows.len().min(max_h as usize);
+        // Rows that did not fit, and so are dropped entirely.
+        let rows_dropped = rows.len() > shown;
+
+        for (row, line) in rows.into_iter().take(shown).enumerate() {
             let Ok(y) = u16::try_from(row) else {
                 break;
             };
-            if y >= max_h {
-                break;
-            }
 
-            canvas.set_str(0, y, line, style);
+            // The last row shown stands in for the rows below it as well.
+            let stands_in = rows_dropped && row + 1 == shown;
+            let line = if self.ellipsis && (stands_in || text_width(line) > width) {
+                Cow::Owned(ellipsize(line, width))
+            } else {
+                Cow::Borrowed(line)
+            };
+
+            let x = self.align.offset(text_width(&line), width);
+            canvas.set_str(x, y, &line, style);
         }
     }
 
@@ -259,6 +348,31 @@ fn words(line: &str) -> Vec<(usize, usize, usize)> {
     words
 }
 
+// `line` cut to fit `width` columns with a `…` in the last column it uses, dropping a
+// character more if that is what the ellipsis needs room for. An empty string if there is no
+// room at all.
+fn ellipsize(line: &str, width: u16) -> String {
+    if width == 0 {
+        return String::new();
+    }
+
+    let room = width as usize - 1;
+    let mut kept = String::new();
+    let mut kept_width = 0;
+
+    for ch in line.chars() {
+        let w = ch.width().unwrap_or(0);
+        if kept_width + w > room {
+            break;
+        }
+        kept.push(ch);
+        kept_width += w;
+    }
+
+    kept.push('…');
+    kept
+}
+
 fn columns(text: &str) -> usize {
     text.chars().map(|ch| ch.width().unwrap_or(0)).sum()
 }
@@ -266,6 +380,7 @@ fn columns(text: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::render_to_text;
     use crate::{Area, Buffer, Canvas};
     use crossterm::style::Color;
 
@@ -423,5 +538,133 @@ mod tests {
     #[test]
     fn empty_text_is_one_row_tall() {
         assert_eq!(Text::new("").wrap(true).height_for_width(10), 1);
+    }
+
+    #[test]
+    fn text_starts_at_the_left_by_default() {
+        assert_eq!(render_to_text(&Text::new("hi"), 6, 1), "hi    ");
+    }
+
+    #[test]
+    fn centered_text_puts_the_odd_column_on_the_right() {
+        let centered = Text::new("hi").align(Align::Center);
+        assert_eq!(render_to_text(&centered, 6, 1), "  hi  ");
+        assert_eq!(render_to_text(&centered, 5, 1), " hi  ");
+    }
+
+    #[test]
+    fn end_aligned_text_sits_against_the_right_edge() {
+        assert_eq!(
+            render_to_text(&Text::new("hi").align(Align::End), 5, 1),
+            "   hi"
+        );
+    }
+
+    #[test]
+    fn alignment_measures_by_columns_not_characters() {
+        let centered = Text::new("日本").align(Align::Center);
+        assert_eq!(render_to_text(&centered, 8, 1), "  日本  ");
+    }
+
+    #[test]
+    fn a_row_that_fills_its_width_is_not_moved() {
+        let centered = Text::new("hello").align(Align::Center);
+        assert_eq!(render_to_text(&centered, 5, 1), "hello");
+        assert_eq!(render_to_text(&centered, 3, 1), "hel");
+    }
+
+    #[test]
+    fn wrapped_text_is_aligned_row_by_row() {
+        let text = Text::new("hello world").wrap(true).align(Align::End);
+        assert_eq!(render_to_text(&text, 7, 2), "  hello\n  world");
+    }
+
+    #[test]
+    fn each_line_is_aligned_on_its_own() {
+        let text = Text::new("a\nbbb").align(Align::Center);
+        assert_eq!(render_to_text(&text, 5, 2), "  a  \n bbb ");
+    }
+
+    #[test]
+    fn without_an_ellipsis_a_long_line_is_simply_cut() {
+        assert_eq!(render_to_text(&Text::new("hello world"), 8, 1), "hello wo");
+    }
+
+    #[test]
+    fn an_ellipsis_replaces_the_last_column_of_a_long_line() {
+        let long = Text::new("hello world").ellipsis(true);
+        assert_eq!(render_to_text(&long, 8, 1), "hello w…");
+    }
+
+    #[test]
+    fn a_line_that_fits_keeps_its_last_character() {
+        let text = Text::new("hello").ellipsis(true);
+        assert_eq!(render_to_text(&text, 5, 1), "hello");
+    }
+
+    #[test]
+    fn an_ellipsis_drops_a_wide_character_that_would_not_fit_beside_it() {
+        // Three columns: the ellipsis needs one, leaving room for one wide character.
+        let text = Text::new("日本語").ellipsis(true);
+        assert_eq!(render_to_text(&text, 3, 1), "日…");
+        // Two columns leave no room for a wide character at all.
+        assert_eq!(render_to_text(&text, 2, 1), "… ");
+    }
+
+    #[test]
+    fn an_ellipsis_in_a_single_column_is_all_that_is_drawn() {
+        assert_eq!(
+            render_to_text(&Text::new("hello").ellipsis(true), 1, 1),
+            "…"
+        );
+    }
+
+    #[test]
+    fn the_last_row_shown_ends_with_an_ellipsis_when_rows_are_dropped() {
+        let text = Text::new("one\ntwo\nthree").ellipsis(true);
+        assert_eq!(render_to_text(&text, 5, 2), "one  \ntwo… ");
+    }
+
+    #[test]
+    fn dropped_rows_and_a_long_last_row_take_one_ellipsis_between_them() {
+        let text = Text::new("one\nlong line\nthree").ellipsis(true);
+        assert_eq!(render_to_text(&text, 5, 2), "one  \nlong…");
+    }
+
+    #[test]
+    fn wrapped_text_that_runs_out_of_rows_ends_with_an_ellipsis() {
+        let text = Text::new("hello world again").wrap(true).ellipsis(true);
+        assert_eq!(render_to_text(&text, 6, 2), "hello \nworld…");
+    }
+
+    #[test]
+    fn rows_that_all_fit_keep_their_last_row_whole() {
+        let text = Text::new("one\ntwo").ellipsis(true);
+        assert_eq!(render_to_text(&text, 5, 2), "one  \ntwo  ");
+    }
+
+    #[test]
+    fn an_ellipsis_is_aligned_with_the_row_it_shortens() {
+        let text = Text::new("hello world").ellipsis(true).align(Align::End);
+        assert_eq!(render_to_text(&text, 8, 1), "hello w…");
+
+        // Four columns leave room for one wide character and the ellipsis: three columns of
+        // text against the right edge.
+        let text = Text::new("日本語").ellipsis(true).align(Align::End);
+        assert_eq!(render_to_text(&text, 4, 1), " 日…");
+    }
+
+    #[test]
+    fn a_zero_sized_canvas_draws_nothing() {
+        assert_eq!(render_to_text(&Text::new("hi").ellipsis(true), 0, 1), "");
+        assert_eq!(render_to_text(&Text::new("hi").ellipsis(true), 4, 0), "");
+    }
+
+    #[test]
+    fn alignment_and_the_ellipsis_leave_measurement_alone() {
+        let text = Text::new("hello world").align(Align::Center).ellipsis(true);
+        assert_eq!(text.default_width(), 11);
+        assert_eq!(text.default_height(), 1);
+        assert_eq!(text.wrap(true).height_for_width(6), 2);
     }
 }

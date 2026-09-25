@@ -28,13 +28,15 @@ The ideas you work with when building an interface.
 - [Keys, focus and the mouse](concepts/input-and-focus.md): making an app interactive
 - [Scrolling](concepts/scrolling.md): content taller than the screen
 - [Writing your own widgets](concepts/custom-widgets.md): implementing `Widget`
+- [Testing widgets](concepts/testing.md): drawing widgets with no terminal and checking the screen
 
 ## 3. Base widgets
 
 The building blocks.
 
 - [Text](widgets/text.md), [Button](widgets/button.md), [Input](widgets/input.md),
-  [Bar](widgets/bar.md), [ScrollGraph](widgets/scroll-graph.md)
+  [Bar](widgets/bar.md), [ScrollGraph](widgets/scroll-graph.md),
+  [Image](widgets/image.md)
 - [Div](widgets/div.md), [Flex](widgets/flex.md),
   [Grid](widgets/grid.md)
 - [ScrollView](widgets/scroll-view.md), [Markdown](widgets/markdown.md)

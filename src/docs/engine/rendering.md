@@ -164,6 +164,13 @@ own `dirty` setting is what it reports to its parent.
 The payoff comes from nesting: a dashboard of a dozen panels, where only one
 updates each frame, compares and sends only that panel.
 
+The risk is a widget that changes a cell without marking it: the cell is never
+compared, so the screen keeps the old character until something else marks that
+area. [`TestTerminal`](crate::testing::TestTerminal) catches this without a
+terminal — `changed()` is every cell a frame altered, `dirty()` is the subset the
+frame also marked, and anything in the first but not the second is a stale patch
+waiting to happen. See [Testing widgets](../concepts/testing.md).
+
 ## See it running
 
 ```text

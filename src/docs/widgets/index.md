@@ -9,6 +9,7 @@ The building blocks every screen is made from.
 - [Input](input.md): a field the user types into — text, password or number
 - [Bar](bar.md): a one-row progress bar
 - [ScrollGraph](scroll-graph.md): a graph of recent values, drawn in braille
+- [Image](image.md): a picture or an animation, drawn as coloured characters
 
 **Containers** — widgets that arrange other widgets:
 

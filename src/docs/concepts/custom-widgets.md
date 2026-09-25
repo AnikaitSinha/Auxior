@@ -226,3 +226,40 @@ are public yet:
 
 Opening these up is the natural next step for custom widgets; until then, the
 frame callback is the way.
+
+## Checking what it draws
+
+A widget of your own is drawn the same way the built-in ones are, so
+[`TestTerminal`](crate::testing::TestTerminal) can draw it in a unit test and read
+the screen back:
+
+```rust
+use auxior::{Canvas, Cell, LayoutOptions, Widget};
+use auxior::testing::render_to_text;
+
+struct Dot {
+    layout: LayoutOptions,
+}
+
+impl Widget for Dot {
+    fn render(&self, canvas: &mut Canvas) {
+        canvas.set(0, 0, Cell::new('•'));
+    }
+
+    fn layout(&self) -> &LayoutOptions {
+        &self.layout
+    }
+
+    fn default_height(&self) -> u16 {
+        1
+    }
+}
+
+let dot = Dot { layout: LayoutOptions::default() };
+assert_eq!(render_to_text(&dot, 3, 1), "•  ");
+```
+
+Measuring is worth testing too, and needs no drawing at all: call
+[`height_for_width`](crate::Widget::height_for_width) at a few widths and check
+the answers match what the widget then draws. See
+[Testing widgets](testing.md).

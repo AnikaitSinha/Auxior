@@ -60,6 +60,28 @@ let back = KeyBinding::shift(KeyCode::Tab); // Shift counts for named keys.
 
 For characters, bind the character itself: `'A'` rather than Shift+`a`.
 
+Going the other way, [`KeyBinding::from_event`](crate::KeyBinding::from_event)
+turns a [`KeyEvent`](crate::KeyEvent) into the binding it stands for, which is
+what you want for looking a key up in a table of your own rather than comparing
+against each binding in turn. It returns `None` for a key being *released*, which
+some terminals report as well as presses — treating those as presses is how a
+binding ends up firing twice:
+
+```rust
+use std::collections::HashMap;
+
+use auxior::{KeyBinding, KeyCode, KeyEvent};
+
+let mut actions: HashMap<KeyBinding, &str> = HashMap::new();
+actions.insert('s'.into(), "save");
+actions.insert(KeyBinding::ctrl(KeyCode::Char('q')), "quit");
+
+let event = KeyEvent::from(KeyCode::Char('s'));
+let pressed = KeyBinding::from_event(&event).and_then(|key| actions.get(&key));
+
+assert_eq!(pressed, Some(&"save"));
+```
+
 ## Quitting
 
 Nothing quits an Auxior app by default. Add quit keys to the config, or return
