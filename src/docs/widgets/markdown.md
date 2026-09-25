@@ -137,3 +137,11 @@ column less than the view.
 The document's height at a width is its number of rendered rows. It's parsed once
 per `Markdown` value, and its layout is kept for the last width used, so measuring
 and then drawing at the same width doesn't repeat the work.
+
+## See it running
+
+```text
+cargo run --example markdown
+```
+
+Shows a document browser with a table of contents and clickable links.

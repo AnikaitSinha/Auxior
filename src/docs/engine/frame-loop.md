@@ -157,3 +157,11 @@ drew.
 `run` returns an error only if reading input or writing to the terminal fails,
 which in practice means the terminal went away. When `App` is dropped, the
 terminal is restored whether `run` returned normally or with an error.
+
+## See it running
+
+```text
+cargo run --example counter
+```
+
+Shows the smallest complete app: state, a key, a redraw.

@@ -136,6 +136,10 @@ A quit key is checked before anything else each frame. When one is pressed, `run
 returns straight away: that frame isn't drawn, and no button or other handler sees
 the key.
 
+Because that check comes first, **a quit key can never be typed**. An app with an
+[`Input`](crate::Input) field should quit on something nobody types into a field,
+such as `Ctrl+C`, rather than on `q`.
+
 Keys are [`KeyBinding`](crate::KeyBinding)s, but anything that converts into one is
 accepted: `'q'`, `KeyCode::Esc`, or `KeyBinding::ctrl(KeyCode::Char('c'))`. See
 [keys, focus and the mouse](../concepts/input-and-focus.md#naming-keys).

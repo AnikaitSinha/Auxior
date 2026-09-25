@@ -80,8 +80,8 @@ Quit keys are checked before anything else, so no widget ever sees them.
 
 Focus decides which widget receives keys like Enter and the arrow keys. Only
 focusable widgets can have it: [`Button`](crate::Button),
-[`ScrollView`](crate::ScrollView), and your own widgets if you make them
-focusable.
+[`Input`](crate::Input), [`ScrollView`](crate::ScrollView), and your own widgets
+if you make them focusable.
 
 - **Tab** moves focus to the next focusable widget, and **Shift+Tab** to the
   previous one, in the order they're drawn. Focus wraps around at the ends.
@@ -125,6 +125,28 @@ assert!(Focus::is_focused(search));
 Focus::clear();
 assert_eq!(Focus::focused(), None);
 ```
+
+## Text fields
+
+An [`Input`](crate::Input) is the one widget that wants *every* key, not a few
+named ones. While a field has focus it takes each character you type, along with
+Backspace, Delete and the arrow keys, before any binding sees them. Keys it
+doesn't use carry on as normal, so Escape and your own shortcuts still work, and
+Tab still leaves the field.
+
+That has one consequence worth planning for: **a quit key can't be typed.** Quit
+keys are checked before anything else, so in an app with text fields, `q` would
+quit instead of appearing in the field. Use a key nobody types into a field:
+
+```rust
+use auxior::{AppConfig, KeyBinding, KeyCode};
+
+let config = AppConfig::new().quit_key(KeyBinding::ctrl(KeyCode::Char('c')));
+# let _ = config;
+```
+
+The [Input page](../widgets/input.md) covers the rest: filters, passwords,
+numbers and the editing keys.
 
 ## The mouse
 

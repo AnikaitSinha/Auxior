@@ -2,6 +2,63 @@
 
 A terminal UI library for Rust.
 
+Auxior draws widgets into a buffer each frame and sends only the cells that
+changed to the terminal. Widgets are rebuilt every frame from your application's
+state, so there is no widget tree to keep in sync: describe what the screen
+should show, and Auxior works out what to redraw.
+
+## What's in it
+
+- **Layout** — `Div` for bordered boxes that stack their children, `Flex` for
+  rows and columns that share space, `Grid` for rows and columns together.
+- **Content** — styled and wrapping `Text`, `Markdown` (CommonMark, including
+  tables), `Button`, `Input` (text, password and number fields), `Bar` and
+  braille graphs.
+- **Composites** — `List`, `Table`, `StatusBar` and `SparklineGraph`.
+- **Scrolling** — `ScrollView` with keyboard, wheel and scroll-into-view.
+- **Input** — key bindings with modifiers, Tab focus traversal, mouse clicks and
+  wheel.
+- **Unicode** — wide characters such as CJK and emoji are measured and drawn by
+  display width, in layout, wrapping and the renderer.
+- **Efficient drawing** — only changed cells are sent, in a single write per
+  frame, with the cursor moved and colours changed only when needed.
+- **Careful with your terminal** — raw mode and the alternate screen are
+  restored on exit, and on a panic, with the panic message left readable.
+
+## Documentation
+
+Auxior comes with a guide that explains the engine, the concepts and every
+widget, alongside the API reference:
+
+```text
+cargo doc --open
+```
+
+The guide is the `guide` module; start at its overview. The same pages are in
+[`src/docs/`](src/docs/) as ordinary Markdown.
+
+## Examples
+
+```text
+cargo run --example counter         # the smallest complete app
+cargo run --example button_counter  # buttons, keys, focus, clicking
+cargo run --example input_form      # text, password and number fields
+cargo run --example markdown        # a document viewer with links
+cargo run --example scroll_view     # wrapped text and scrolling
+cargo run --example flex_demo       # nested layout
+cargo run --example grid_demo       # a grid of panels
+cargo run --example scroll_graph    # live braille graphs
+cargo run --example testing         # a per-core CPU dashboard
+cargo run --example stress_test     # frame statistics
+```
+
+Most quit with `q` or `Esc`; `input_form` uses `Ctrl+C`, since `q` belongs to its
+text fields.
+
+## Status
+
+Pre-release, working towards 0.1.0. The API is still open to change.
+
 ## License
 
 Copyright © 2026 Anikait Sinha

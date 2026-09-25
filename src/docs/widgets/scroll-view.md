@@ -78,3 +78,11 @@ The view draws its content off screen at full height, copies in the visible rows
 moves the click areas of widgets inside to where they appear, and scrolls a newly
 focused widget into view. [Scrolling](../concepts/scrolling.md) explains
 each step and its costs.
+
+## See it running
+
+```text
+cargo run --example scroll_view
+```
+
+Shows a long wrapped article you can scroll and jump around.

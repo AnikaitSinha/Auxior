@@ -107,3 +107,11 @@ twice `window`.
 
 - Named colors, palette values and RGB colors all blend; only `Color::Reset` cannot.
 - Natural size: 8 × 1. Give a graph a size or a flex weight.
+
+## See it running
+
+```text
+cargo run --example scroll_graph
+```
+
+Shows live CPU graphs, one braille area graph and one sparkline.

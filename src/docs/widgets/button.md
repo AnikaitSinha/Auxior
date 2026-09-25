@@ -135,3 +135,11 @@ buttons are focusable and clickable like any other button.
 - Draw each button once per frame. A button hands its handler over when drawn, so
   a second drawing in the same frame has nothing to register.
 - Two buttons bound to the same key: the one drawn later wins.
+
+## See it running
+
+```text
+cargo run --example button_counter
+```
+
+Shows buttons, keys and focus in a small counter app.

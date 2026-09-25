@@ -30,6 +30,7 @@ assert_eq!(buf.get(8, 1).unwrap().ch, 'b');
 |---|---|---|
 | [`row()`](crate::Flex::row) | | Children left to right. |
 | [`column()`](crate::Flex::column) | | Children top to bottom. |
+| [`direction(d)`](crate::Flex::direction) | | Chooses the axis at run time, instead of `row()` or `column()`. |
 | [`gap(n)`](crate::Flex::gap) | 0 | Blank cells between neighboring children. |
 | [`child(widget)`](crate::Flex::child) | | Adds a child after the previous ones. |
 | `width`, `height`, `flex`, `x`, `y` | | Layout of the flex itself. |
@@ -73,3 +74,11 @@ a column flex an explicit `height` if it should fill the div.
 - There's no alignment option: children start at the beginning of the main axis.
   To push something to the end, put a `flex(1)` spacer before it — any widget with
   nothing to draw, such as `Text::new("")`.
+
+## See it running
+
+```text
+cargo run --example flex_demo
+```
+
+Shows nested rows and columns, borders and border buttons.

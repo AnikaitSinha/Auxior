@@ -213,3 +213,16 @@ already reflects any Tab or click earlier in the same batch.
 
 Mouse clicks work the same way: match [`AppEvent::Mouse`](crate::AppEvent::Mouse)
 against the area you drew your widget in.
+
+For reference, these are the registries the built-in widgets use, none of which
+are public yet:
+
+| Registry | Used by | For |
+|---|---|---|
+| Key bindings | [`Button::key`](crate::Button::key) | A key that works from anywhere |
+| Focused bindings | `Button`, `ScrollView` | Enter, Space, the arrow keys, while focused |
+| Typing | [`Input`](crate::Input) | Every key, while focused |
+| Click and wheel areas | most widgets | Presses and scrolling by position |
+
+Opening these up is the natural next step for custom widgets; until then, the
+frame callback is the way.

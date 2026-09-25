@@ -59,6 +59,7 @@
 mod composites;
 mod core;
 pub mod guide;
+mod media;
 mod widgets;
 
 // Re-exported so downstream crates can use the exact `crossterm` version Auxior
@@ -79,3 +80,5 @@ pub use widgets::{
     Grid, Heading, Input, InputState, LayoutOptions, Markdown, ScrollGraph, ScrollState,
     ScrollView, Text, Widget,
 };
+
+pub use media::{GifFrame, RawGif};

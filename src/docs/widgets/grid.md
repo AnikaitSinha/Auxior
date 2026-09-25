@@ -56,3 +56,11 @@ Every child fills its cell.
 - Rows are measured at the width their column will have, so wrapped text in a
   grid gets as many rows as it needs.
 - A grid fills the whole area it's given, unless it has a fixed size.
+
+## See it running
+
+```text
+cargo run --example grid_demo
+```
+
+Shows a grid of panels sharing the screen.

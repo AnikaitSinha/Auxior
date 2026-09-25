@@ -139,3 +139,11 @@ let config = AppConfig::new().quit_key(KeyBinding::ctrl(KeyCode::Char('c')));
 - One line only. There is no text area yet, and no selection, clipboard or undo.
 - A field registers one click area per visible column, so clicking positions the
   cursor exactly.
+
+## See it running
+
+```text
+cargo run --example input_form
+```
+
+Shows a sign-in form with text, password and number fields.

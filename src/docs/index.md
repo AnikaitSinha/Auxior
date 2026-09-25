@@ -46,3 +46,23 @@ Ready-made widgets assembled from the base ones.
 - [List](composites/list.md), [Table](composites/table.md)
 - [StatusBar](composites/status-bar.md),
   [SparklineGraph](composites/sparkline-graph.md)
+
+## Running the examples
+
+The repository ships small, complete apps. Each one runs on its own:
+
+| Command | Shows |
+|---|---|
+| `cargo run --example counter` | The smallest app: state, a key, a redraw |
+| `cargo run --example button_counter` | Buttons, keys, focus and clicking |
+| `cargo run --example input_form` | Text, password and number fields |
+| `cargo run --example markdown` | This guide, rendered, with links and a table of contents |
+| `cargo run --example scroll_view` | Wrapped text, scrolling and scroll-into-view |
+| `cargo run --example flex_demo` | Nested rows and columns, borders, border buttons |
+| `cargo run --example grid_demo` | A grid of panels sharing the screen |
+| `cargo run --example scroll_graph` | Live braille graphs and a sparkline |
+| `cargo run --example testing` | A per-core CPU dashboard |
+| `cargo run --example stress_test` | Frame statistics, with changed cells highlighted |
+
+Every example quits with `q` or `Esc`, except `input_form`, which uses `Ctrl+C`
+so that `q` can be typed into its fields.

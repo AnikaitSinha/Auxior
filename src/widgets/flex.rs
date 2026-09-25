@@ -56,6 +56,13 @@ impl Flex {
         }
     }
 
+    /// Sets which way children are placed. [`Flex::row`] and [`Flex::column`] are
+    /// the usual way in; this is for choosing between them at run time.
+    pub fn direction(mut self, direction: FlexDirection) -> Self {
+        self.direction = direction;
+        self
+    }
+
     /// Sets the blank cells between neighboring children.
     pub fn gap(mut self, n: u16) -> Self {
         self.gap = n;
@@ -502,5 +509,28 @@ mod tests {
         assert_eq!(row.height_for_width(10), 2);
 
         assert_eq!(Flex::column().height_for_width(10), 1);
+    }
+
+    #[test]
+    fn direction_chooses_the_axis_at_run_time() {
+        use crate::Text;
+
+        let across = |direction: FlexDirection| {
+            let mut buf = crate::Buffer::new(6, 2);
+            let mut canvas = crate::Canvas::new(&mut buf, crate::Area::new(0, 0, 6, 2));
+            Flex::column()
+                .direction(direction)
+                .child(Text::new("a"))
+                .child(Text::new("b"))
+                .render(&mut canvas);
+            (
+                buf.get(0, 0).unwrap().ch,
+                buf.get(1, 0).unwrap().ch,
+                buf.get(0, 1).unwrap().ch,
+            )
+        };
+
+        assert_eq!(across(FlexDirection::Row), ('a', 'b', ' '));
+        assert_eq!(across(FlexDirection::Column), ('a', ' ', 'b'));
     }
 }

@@ -72,3 +72,11 @@ the range.
 Keep the history yourself and pass it each frame, as with
 [`ScrollGraph`](../widgets/scroll-graph.md#feeding-data). Keep at least
 `window` samples so the sparkline fills its width.
+
+## See it running
+
+```text
+cargo run --example testing
+```
+
+Shows a per-core CPU dashboard built from sparklines.

@@ -163,3 +163,11 @@ own `dirty` setting is what it reports to its parent.
 
 The payoff comes from nesting: a dashboard of a dozen panels, where only one
 updates each frame, compares and sends only that panel.
+
+## See it running
+
+```text
+cargo run --example stress_test
+```
+
+Shows live frame statistics, with the changed cells highlighted.
