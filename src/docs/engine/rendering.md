@@ -93,9 +93,13 @@ writer forgets the cursor position and moves explicitly for the next cell.
 
 ### Sending styles only when they change
 
-Foreground color, background color, bold, italic and underline are each sent only
-when they differ from what's active. A whole row in one color costs one color
-sequence.
+The two colors and the six attributes are each sent only when they differ from
+what's active. A whole row in one color costs one color sequence.
+
+Bold and dim are the exception, because a terminal has a single text intensity:
+the sequence that turns bold off turns dim off too. The writer tracks them as a
+pair, so turning one off restates the other if it should stay on. Turning either
+*on* still costs one sequence, since nothing has to be reset first.
 
 ### Cells that aren't what they seem
 

@@ -21,6 +21,12 @@ pub struct Cell {
     pub i: bool,
     /// Underlined.
     pub u: bool,
+    /// Reversed: the foreground and background colors swap.
+    pub r: bool,
+    /// Dim: the text is drawn fainter than usual.
+    pub d: bool,
+    /// Struck through.
+    pub s: bool,
 }
 
 impl Default for Cell {
@@ -32,6 +38,9 @@ impl Default for Cell {
             b: false,
             i: false,
             u: false,
+            r: false,
+            d: false,
+            s: false,
         }
     }
 }
@@ -74,6 +83,41 @@ impl Cell {
     /// This cell underlined.
     pub fn set_underline(mut self) -> Self {
         self.u = true;
+        self
+    }
+
+    /// This cell reversed, with its foreground and background colors swapped.
+    ///
+    /// The terminal does the swapping, so this shows as a solid block of the text color even
+    /// when the colors are the terminal's defaults and Auxior does not know what they are. It
+    /// is the portable way to highlight a selection or draw a cursor.
+    ///
+    /// ```
+    /// use auxior::Cell;
+    ///
+    /// let selected = Cell::new('x').set_reverse();
+    /// assert!(selected.r);
+    /// ```
+    pub fn set_reverse(mut self) -> Self {
+        self.r = true;
+        self
+    }
+
+    /// This cell dimmed.
+    ///
+    /// Dim and bold are the same attribute to a terminal, which has one intensity at a time, so
+    /// a cell that is both usually shows as one or the other rather than both.
+    pub fn set_dim(mut self) -> Self {
+        self.d = true;
+        self
+    }
+
+    /// This cell struck through.
+    ///
+    /// Less widely supported than the other attributes: a terminal that does not know it draws
+    /// the text unchanged.
+    pub fn set_strikethrough(mut self) -> Self {
+        self.s = true;
         self
     }
 

@@ -8,8 +8,7 @@ characters wider than one column are handled.
 ## Cells
 
 A cell is one position on the terminal grid: a single `char`, a foreground and a
-background [`Color`](crate::Color), and three attributes — bold, italic and
-underline.
+background [`Color`](crate::Color), and six attributes.
 
 ```rust
 use auxior::{Cell, Color};
@@ -17,17 +16,38 @@ use auxior::{Cell, Color};
 let plain = Cell::new('a');
 let warning = Cell::with_fg('!', Color::Yellow).set_bold();
 let quiet = Cell::new('n').set_italic().set_underline();
+let selected = Cell::new('s').set_reverse();
 let blank = Cell::empty(); // A space in the terminal's default colors.
-# let _ = quiet;
+# let _ = (quiet, selected);
 
 assert!(warning.b && !warning.i);
 assert_eq!(blank.ch, ' ');
 # let _ = plain;
 ```
 
-[`set_bold`](crate::Cell::set_bold), [`set_italic`](crate::Cell::set_italic) and
-[`set_underline`](crate::Cell::set_underline) each return the cell, so they chain,
-and the fields `b`, `i` and `u` can be read or set directly.
+| Attribute | Field | Method |
+|---|---|---|
+| Bold | `b` | [`set_bold`](crate::Cell::set_bold) |
+| Italic | `i` | [`set_italic`](crate::Cell::set_italic) |
+| Underline | `u` | [`set_underline`](crate::Cell::set_underline) |
+| Reverse | `r` | [`set_reverse`](crate::Cell::set_reverse) |
+| Dim | `d` | [`set_dim`](crate::Cell::set_dim) |
+| Strikethrough | `s` | [`set_strikethrough`](crate::Cell::set_strikethrough) |
+
+Each method returns the cell, so they chain, and the fields can be read or set
+directly.
+
+**Reverse** swaps the foreground and background when the terminal draws the cell.
+That makes it the portable way to highlight something — a selected row, a cursor —
+because it works against whatever colors the terminal is actually using, including
+the default ones Auxior never sees.
+
+**Dim and bold are the same attribute** as far as a terminal is concerned: it has
+one text intensity, and the escape sequence that turns bold off turns dim off with
+it. Auxior writes the two together so that clearing one never silently clears the
+other, but a cell that sets both usually shows as one or the other. **Strikethrough**
+is the least widely supported: a terminal that doesn't know it draws the text
+unchanged.
 
 Cells are small `Copy` values, and two cells are equal only when every field is
 equal. That equality is exactly what the renderer uses to decide whether a

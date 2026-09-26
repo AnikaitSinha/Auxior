@@ -42,6 +42,9 @@ below describes 0.1.0 as it stands.
 - A frame loop with a target frame rate, batched input and resize handling.
 - Only changed cells are sent to the terminal, in one write per frame, with
   redundant cursor moves and colour changes removed.
+- Six cell attributes: bold, italic, underline, reverse, dim and strikethrough.
+  Bold and dim are written as a pair, since the sequence that clears one clears
+  the other.
 - Optional incremental drawing (`AppConfig::incremental`) for large screens that
   change very little.
 - Key bindings with modifiers, Tab focus traversal, mouse clicks and wheel, all

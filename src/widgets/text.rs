@@ -65,6 +65,9 @@ pub struct Text {
     bold: bool,
     italic: bool,
     underline: bool,
+    reverse: bool,
+    dim: bool,
+    strikethrough: bool,
     wrap: bool,
     align: Align,
     ellipsis: bool,
@@ -80,6 +83,9 @@ impl Text {
             bold: false,
             italic: false,
             underline: false,
+            reverse: false,
+            dim: false,
+            strikethrough: false,
             wrap: false,
             align: Align::default(),
             ellipsis: false,
@@ -107,6 +113,43 @@ impl Text {
     /// Sets whether the text is underlined.
     pub fn underline(mut self, set: bool) -> Self {
         self.underline = set;
+        self
+    }
+
+    /// Sets whether the text is reversed, swapping its foreground and background colors.
+    ///
+    /// The terminal does the swapping, so this highlights text against whatever the terminal's
+    /// own colors are. It is the usual way to show a selected row or a cursor.
+    ///
+    /// ```
+    /// use auxior::Text;
+    /// use auxior::testing::TestTerminal;
+    ///
+    /// let mut term = TestTerminal::new(3, 1);
+    /// term.draw(&Text::new("sel").reverse(true));
+    ///
+    /// assert_eq!(term.map_row(0, |cell| if cell.r { 'R' } else { '.' }), "RRR");
+    /// ```
+    pub fn reverse(mut self, set: bool) -> Self {
+        self.reverse = set;
+        self
+    }
+
+    /// Sets whether the text is dimmed.
+    ///
+    /// Dim and bold are one attribute to a terminal, so text that is both usually shows as one
+    /// or the other.
+    pub fn dim(mut self, set: bool) -> Self {
+        self.dim = set;
+        self
+    }
+
+    /// Sets whether the text is struck through.
+    ///
+    /// Less widely supported than the other attributes: a terminal that does not know it draws
+    /// the text unchanged.
+    pub fn strikethrough(mut self, set: bool) -> Self {
+        self.strikethrough = set;
         self
     }
 
@@ -214,6 +257,15 @@ impl Widget for Text {
         }
         if self.underline {
             style = style.set_underline();
+        }
+        if self.reverse {
+            style = style.set_reverse();
+        }
+        if self.dim {
+            style = style.set_dim();
+        }
+        if self.strikethrough {
+            style = style.set_strikethrough();
         }
 
         let width = canvas.width();
@@ -538,6 +590,21 @@ mod tests {
     #[test]
     fn empty_text_is_one_row_tall() {
         assert_eq!(Text::new("").wrap(true).height_for_width(10), 1);
+    }
+
+    #[test]
+    fn attributes_apply_to_every_cell_of_the_text() {
+        let text = Text::new("hi")
+            .reverse(true)
+            .dim(true)
+            .strikethrough(true)
+            .bold(true);
+        let buf = render_text(&text, 3, 1);
+
+        let cell = buf.get(0, 0).unwrap();
+        assert!(cell.r && cell.d && cell.s && cell.b);
+        // The trailing blank is not part of the text, so it keeps the default style.
+        assert!(!buf.get(2, 0).unwrap().r);
     }
 
     #[test]

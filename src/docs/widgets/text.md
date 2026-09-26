@@ -22,6 +22,7 @@ assert_eq!(buf.get(0, 1).unwrap().fg, Color::Cyan);
 | [`new(content)`](crate::Text::new) | | The text. Each `\n` starts a new row. |
 | [`fg(color)`](crate::Text::fg) | the terminal's color | Text color. |
 | [`bold`](crate::Text::bold), [`italic`](crate::Text::italic), [`underline`](crate::Text::underline) | off | Attributes. |
+| [`reverse`](crate::Text::reverse), [`dim`](crate::Text::dim), [`strikethrough`](crate::Text::strikethrough) | off | More attributes; see [cells](../engine/cells-and-buffers.md#cells). |
 | [`wrap(on)`](crate::Text::wrap()) | off | Break long lines between words instead of cutting them off. |
 | [`align(align)`](crate::Text::align) | [`Align::Start`](crate::Align) | Where each row sits in the width it is given. |
 | [`ellipsis(on)`](crate::Text::ellipsis) | off | End text that does not fit with `…` instead of just stopping. |

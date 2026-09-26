@@ -15,6 +15,22 @@ use crossterm::{
 
 use crate::{Buffer, Cell};
 
+// Writes the sequence for one attribute, but only when the terminal is not known to be in that
+// state already.
+fn toggle<W: Write>(
+    writer: &mut W,
+    tracked: &mut Option<bool>,
+    wanted: bool,
+    on: Attribute,
+    off: Attribute,
+) -> io::Result<()> {
+    if *tracked != Some(wanted) {
+        queue!(writer, SetAttribute(if wanted { on } else { off }))?;
+        *tracked = Some(wanted);
+    }
+    Ok(())
+}
+
 // A whole flush is written into one buffer and handed to the terminal in a
 // single `write`, so cost here is escape-sequence bytes rather than syscalls.
 const FLUSH_BUFFER_CAPACITY: usize = 64 * 1024;
@@ -28,6 +44,9 @@ struct FlushState {
     bold: Option<bool>,
     italic: Option<bool>,
     underline: Option<bool>,
+    reverse: Option<bool>,
+    dim: Option<bool>,
+    strikethrough: Option<bool>,
     // Where the cursor sits after the previous `Print`, when that is known.
     cursor: Option<(u16, u16)>,
 }
@@ -55,41 +74,39 @@ impl FlushState {
             self.bg = Some(cell.bg);
         }
 
-        if self.bold != Some(cell.b) {
-            queue!(
-                writer,
-                SetAttribute(if cell.b {
-                    Attribute::Bold
-                } else {
-                    Attribute::NormalIntensity
-                })
-            )?;
-            self.bold = Some(cell.b);
-        }
+        self.write_intensity(writer, cell)?;
 
-        if self.italic != Some(cell.i) {
-            queue!(
-                writer,
-                SetAttribute(if cell.i {
-                    Attribute::Italic
-                } else {
-                    Attribute::NoItalic
-                })
-            )?;
-            self.italic = Some(cell.i);
-        }
+        toggle(
+            writer,
+            &mut self.italic,
+            cell.i,
+            Attribute::Italic,
+            Attribute::NoItalic,
+        )?;
 
-        if self.underline != Some(cell.u) {
-            queue!(
-                writer,
-                SetAttribute(if cell.u {
-                    Attribute::Underlined
-                } else {
-                    Attribute::NoUnderline
-                })
-            )?;
-            self.underline = Some(cell.u);
-        }
+        toggle(
+            writer,
+            &mut self.underline,
+            cell.u,
+            Attribute::Underlined,
+            Attribute::NoUnderline,
+        )?;
+
+        toggle(
+            writer,
+            &mut self.reverse,
+            cell.r,
+            Attribute::Reverse,
+            Attribute::NoReverse,
+        )?;
+
+        toggle(
+            writer,
+            &mut self.strikethrough,
+            cell.s,
+            Attribute::CrossedOut,
+            Attribute::NotCrossedOut,
+        )?;
 
         // A character with no width of its own would not move the cursor, so
         // every later cell in the run would land one column to the left.
@@ -106,6 +123,41 @@ impl FlushState {
             .filter(|&next| next < wrap_width)
             .map(|next| (next, y));
 
+        Ok(())
+    }
+
+    // Bold and dim are one attribute to the terminal: the sequence that turns either off turns
+    // both off. They are written together so that clearing one does not silently clear the
+    // other, and so the common case of turning bold on still costs a single sequence.
+    fn write_intensity<W: Write>(&mut self, writer: &mut W, cell: &Cell) -> io::Result<()> {
+        if self.bold == Some(cell.b) && self.dim == Some(cell.d) {
+            return Ok(());
+        }
+
+        // Anything that has to be turned off, or is not known to be off already, needs the
+        // shared reset first, after which whichever is wanted is stated again.
+        let needs_reset =
+            (!cell.b && self.bold != Some(false)) || (!cell.d && self.dim != Some(false));
+
+        if needs_reset {
+            queue!(writer, SetAttribute(Attribute::NormalIntensity))?;
+            if cell.b {
+                queue!(writer, SetAttribute(Attribute::Bold))?;
+            }
+            if cell.d {
+                queue!(writer, SetAttribute(Attribute::Dim))?;
+            }
+        } else {
+            if cell.b && self.bold != Some(true) {
+                queue!(writer, SetAttribute(Attribute::Bold))?;
+            }
+            if cell.d && self.dim != Some(true) {
+                queue!(writer, SetAttribute(Attribute::Dim))?;
+            }
+        }
+
+        self.bold = Some(cell.b);
+        self.dim = Some(cell.d);
         Ok(())
     }
 
@@ -618,6 +670,135 @@ mod tests {
         Terminal::flush_cells_to(&buf, &[(0, 0), (99, 99)], buf.width, &mut out).unwrap();
 
         assert!(String::from_utf8_lossy(&out).contains('A'));
+    }
+
+    #[test]
+    fn flush_to_writes_the_reverse_attribute() {
+        let mut buf = Buffer::new(2, 1);
+        buf.set(0, 0, Cell::new('A').set_reverse());
+        buf.set(1, 0, Cell::new('B'));
+
+        let mut out = Vec::new();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert!(
+            output.contains("\x1b[7m"),
+            "expected reverse on: {output:?}"
+        );
+        assert!(
+            output.contains("\x1b[27m"),
+            "expected reverse off: {output:?}"
+        );
+    }
+
+    #[test]
+    fn flush_to_writes_the_strikethrough_attribute() {
+        let mut buf = Buffer::new(2, 1);
+        buf.set(0, 0, Cell::new('A').set_strikethrough());
+        buf.set(1, 0, Cell::new('B'));
+
+        let mut out = Vec::new();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert!(
+            output.contains("\x1b[9m"),
+            "expected strikethrough on: {output:?}"
+        );
+        assert!(
+            output.contains("\x1b[29m"),
+            "expected strikethrough off: {output:?}"
+        );
+    }
+
+    #[test]
+    fn flush_to_writes_the_dim_attribute() {
+        let mut buf = Buffer::new(1, 1);
+        buf.set(0, 0, Cell::new('A').set_dim());
+
+        let mut out = Vec::new();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
+
+        assert!(String::from_utf8_lossy(&out).contains("\x1b[2m"));
+    }
+
+    #[test]
+    fn turning_bold_off_restates_dim_that_stays_on() {
+        let mut buf = Buffer::new(2, 1);
+        buf.set(0, 0, Cell::new('A').set_bold().set_dim());
+        buf.set(1, 0, Cell::new('B').set_dim());
+
+        let mut out = Vec::new();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
+
+        // The sequence that turns bold off turns dim off with it, so dim has to be sent again.
+        let output = String::from_utf8_lossy(&out);
+        let after_reset = output
+            .rsplit_once("\x1b[22m")
+            .map(|(_, tail)| tail)
+            .unwrap_or_else(|| panic!("expected an intensity reset: {output:?}"));
+
+        assert!(
+            after_reset.contains("\x1b[2m"),
+            "dim must be restated after the shared reset: {output:?}"
+        );
+    }
+
+    #[test]
+    fn turning_dim_off_restates_bold_that_stays_on() {
+        let mut buf = Buffer::new(2, 1);
+        buf.set(0, 0, Cell::new('A').set_bold().set_dim());
+        buf.set(1, 0, Cell::new('B').set_bold());
+
+        let mut out = Vec::new();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        let after_reset = output
+            .rsplit_once("\x1b[22m")
+            .map(|(_, tail)| tail)
+            .unwrap_or_else(|| panic!("expected an intensity reset: {output:?}"));
+
+        assert!(
+            after_reset.contains("\x1b[1m"),
+            "bold must be restated after the shared reset: {output:?}"
+        );
+    }
+
+    #[test]
+    fn turning_bold_on_costs_one_sequence() {
+        let mut buf = Buffer::new(2, 1);
+        buf.set(0, 0, Cell::new('A'));
+        buf.set(1, 0, Cell::new('B').set_bold());
+
+        let mut out = Vec::new();
+        Terminal::flush_to(&buf, buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert!(output.contains("\x1b[1m"), "expected bold on: {output:?}");
+        // One reset, for the first cell, where nothing about the terminal is known yet.
+        // Turning bold on afterwards needs no reset of its own.
+        assert_eq!(
+            output.matches("\x1b[22m").count(),
+            1,
+            "turning bold on should not cost a second sequence: {output:?}"
+        );
+    }
+
+    #[test]
+    fn an_unchanged_attribute_is_written_once_per_run() {
+        let mut buf = Buffer::new(3, 1);
+        for x in 0..3u16 {
+            buf.set(x, 0, Cell::new('x').set_reverse().set_strikethrough());
+        }
+
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0), (2, 0)], buf.width, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert_eq!(output.matches("\x1b[7m").count(), 1, "{output:?}");
+        assert_eq!(output.matches("\x1b[9m").count(), 1, "{output:?}");
     }
 
     #[test]
