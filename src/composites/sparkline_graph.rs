@@ -1,3 +1,4 @@
+use crate::widgets::layout_builders;
 use crossterm::style::Color;
 
 use crate::{
@@ -154,6 +155,8 @@ impl SparklineGraph {
         self.layout.flex = Some(n);
         self
     }
+
+    layout_builders!(layout);
 
     /// Sets how many samples span the sparkline's width. Values below 1 are raised to 1.
     pub fn window(mut self, n: usize) -> Self {

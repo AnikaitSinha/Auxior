@@ -35,7 +35,7 @@ assert_eq!(buf.get(8, 1).unwrap().ch, 'b');
 | [`justify(j)`](crate::Flex::justify) | [`Start`](crate::Justify) | How leftover space along the direction is shared out. |
 | [`align(a)`](crate::Flex::align) | [`Stretch`](crate::AlignItems) | Where children sit across the direction. |
 | [`child(widget)`](crate::Flex::child) | | Adds a child after the previous ones. |
-| `width`, `height`, `flex`, `x`, `y` | | Layout of the flex itself. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | | Layout of the flex itself. |
 
 ## Choosing the direction at run time
 

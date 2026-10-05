@@ -33,8 +33,8 @@ assert_eq!(row(2), format!("{:<14}{:<6}", "pears", "10"));
 | [`num_of_cols(n)`](crate::Table::num_of_cols) | 0 | A column count, if you want more columns than any row has. |
 | [`header(on)`](crate::Table::header) | off | Shows the header row. |
 | [`header_labels(cells)`](crate::Table::header_labels) | none | The header row's cells. |
-| [`min_height(n)`](crate::Table::min_height()) | 2 | The fewest rows the table needs to draw. |
-| `width`, `height`, `flex`, `x`, `y` | | Layout. |
+| [`min_rows(n)`](crate::Table::min_rows()) | 2 | The fewest rows the table needs to draw. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | | Layout. |
 
 ## Columns
 
@@ -63,7 +63,7 @@ spacing in the minimum widths.
 ## Minimum size
 
 The table draws **nothing** when its area is narrower than its minimum widths added
-up (or than `num_of_cols`), or shorter than `min_height`.
+up (or than `num_of_cols`), or shorter than `min_rows`.
 
 ## Size
 

@@ -32,7 +32,7 @@ assert_eq!(buf.get(6, 3).unwrap().ch, 'd');
 | [`col_gap(n)`](crate::Grid::col_gap) | 0 | Blank columns between columns. |
 | [`row_gap(n)`](crate::Grid::row_gap) | 0 | Blank rows between rows. |
 | [`child(widget)`](crate::Grid::child) | | Adds a child in the next cell. |
-| `width`, `height`, `flex`, `x`, `y` | | Layout of the grid itself. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | | Layout of the grid itself. |
 
 ## Sizing columns and rows
 

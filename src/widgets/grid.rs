@@ -1,3 +1,4 @@
+use crate::widgets::layout_builders;
 use crate::{Area, Canvas, LayoutOptions, Widget};
 
 /// Places children in a grid, filling each row left to right before starting the next.
@@ -72,6 +73,8 @@ impl Grid {
         self.layout.flex = Some(n);
         self
     }
+
+    layout_builders!(layout);
 
     /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
@@ -171,7 +174,7 @@ impl Widget for Grid {
             return 1;
         }
 
-        let width = self.layout.width.unwrap_or(width).min(width);
+        let width = self.layout.sized_width(width).unwrap_or(width).min(width);
         let cols = self.cols.max(1) as usize;
         let col_widths = column_widths(&self.children, cols, self.col_gap, Some(width));
         track_total(&row_slots(&self.children, cols, &col_widths), self.row_gap)
@@ -266,21 +269,37 @@ fn merge_child_into_track(
     available: u16,
 ) {
     let layout = child.layout();
+    // A track has to hold the child and its margin, so the margin counts toward the track's
+    // size and the child is then inset within its cell.
+    let margin = match axis {
+        TrackAxis::Width => layout.margin.horizontal(),
+        TrackAxis::Height => layout.margin.vertical(),
+    };
+    let clamp = |size: u16| match axis {
+        TrackAxis::Width => layout.clamp_width(size),
+        TrackAxis::Height => layout.clamp_height(size),
+    };
     let explicit = match axis {
-        TrackAxis::Width => layout.width,
+        TrackAxis::Width => layout.sized_width(available),
+        // A percentage height has nothing to be a percentage of while tracks are being sized.
         TrackAxis::Height => layout.height,
     };
 
     let intrinsic = match axis {
         TrackAxis::Width => child.default_width(),
         TrackAxis::Height => {
-            child.height_for_width(layout.width.unwrap_or(available).min(available))
+            let room = available.saturating_sub(layout.margin.horizontal());
+            child.height_for_width(layout.sized_width(room).unwrap_or(room).min(room))
         }
     };
-    slot.intrinsic = slot.intrinsic.max(intrinsic);
+    slot.intrinsic = slot.intrinsic.max(clamp(intrinsic).saturating_add(margin));
 
     if let Some(size) = explicit {
-        slot.explicit = Some(slot.explicit.unwrap_or(0).max(size));
+        slot.explicit = Some(
+            slot.explicit
+                .unwrap_or(0)
+                .max(clamp(size).saturating_add(margin)),
+        );
         return;
     }
 
@@ -381,14 +400,16 @@ fn layout_grid(
     children
         .iter()
         .enumerate()
-        .map(|(i, _)| {
+        .map(|(i, child)| {
             let col = i % cols;
             let row = i / cols;
+            let margin = child.layout().margin;
+
             Area {
-                x: x_offsets[col],
-                y: y_offsets[row],
-                width: col_widths[col],
-                height: row_heights[row],
+                x: x_offsets[col].saturating_add(margin.left),
+                y: y_offsets[row].saturating_add(margin.top),
+                width: col_widths[col].saturating_sub(margin.horizontal()),
+                height: row_heights[row].saturating_sub(margin.vertical()),
             }
         })
         .collect()
@@ -397,6 +418,7 @@ fn layout_grid(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::render_to_text;
     use crate::{Buffer, Div, Text};
 
     fn render_grid(grid: &Grid, width: u16, height: u16) -> Buffer {
@@ -406,6 +428,43 @@ mod tests {
         buf
     }
 
+    #[test]
+    fn a_margin_insets_a_child_within_its_cell() {
+        let grid = Grid::new()
+            .cols(2)
+            .child(Text::new("ab").margin_left(1))
+            .child(Text::new("cd"));
+
+        assert_eq!(render_to_text(&grid, 6, 1), " abcd ");
+    }
+
+    #[test]
+    fn a_track_is_wide_enough_for_a_child_and_its_margin() {
+        // "ab" is two columns, and the margin asks for one more on each side.
+        let grid = Grid::new()
+            .cols(2)
+            .child(Text::new("ab").margin_x(1))
+            .child(Text::new("cd"));
+
+        assert_eq!(grid.default_width(), 6);
+    }
+
+    #[test]
+    fn a_margin_takes_rows_from_a_grid_row() {
+        let grid = Grid::new().cols(1).child(Text::new("a").margin_y(1));
+        assert_eq!(grid.height_for_width(4), 3);
+        assert_eq!(render_to_text(&grid, 4, 3), "    \na   \n    ");
+    }
+
+    #[test]
+    fn a_maximum_keeps_a_cell_narrow() {
+        let grid = Grid::new()
+            .cols(2)
+            .child(Text::new("abcdef").max_width(2))
+            .child(Text::new("xy"));
+
+        assert_eq!(grid.default_width(), 4);
+    }
     #[test]
     fn places_children_in_row_major_order() {
         let grid = Grid::new()

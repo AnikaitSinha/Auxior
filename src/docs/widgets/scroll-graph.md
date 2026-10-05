@@ -31,7 +31,7 @@ assert_eq!(buf.get(0, 0).unwrap().ch, '⣿'); // Every dot filled.
 | [`end_color(c)`](crate::ScrollGraph::end_color) | blue | Bottom of the graph, or the highest sparkline band. |
 | [`sparkline()`](crate::ScrollGraph::sparkline) | off | One-row mode, colored by value. |
 | [`color_steps(n)`](crate::ScrollGraph::color_steps) | 8 | Color bands in a sparkline. |
-| `width`, `height`, `flex`, `x`, `y` | | Layout. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | | Layout. |
 
 ## Braille resolution
 

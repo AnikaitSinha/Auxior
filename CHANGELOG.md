@@ -34,6 +34,10 @@ below describes 0.1.0 as it stands.
 - `Div` borders in five line styles (`Rounded`, `Square`, `Double`, `Thick`,
   `Ascii`) or characters of your own, drawn on any set of edges, with an
   alignable title and footer.
+- Layout options on every widget: `margin` (and `margin_x`, `margin_y` and the
+  four sides), `min_width`/`max_width`/`min_height`/`max_height`, and
+  `width_percent`/`height_percent`. `Div`, `Flex`, `Grid` and `List` all honour
+  them, in drawing and in measuring themselves.
 - `Flex` shares out space the children leave with `justify` (`Start`, `Center`,
   `End`, `SpaceBetween`, `SpaceEvenly`, `SpaceAround`) and places them across
   the direction with `align` (`Stretch`, `Start`, `Center`, `End`).

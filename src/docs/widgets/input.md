@@ -49,7 +49,7 @@ frame. Clones share the same text.
 | [`on_change(f)`](crate::Input::on_change) | Called with the new text whenever it changes. |
 | [`on_submit(f)`](crate::Input::on_submit) | Called with the text when Enter is pressed. |
 | [`fg(color)`](crate::Input::fg) | Text color. |
-| `width`, `height`, `flex`, `x`, `y` | Layout. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | Layout. |
 
 ### Filters
 

@@ -1,3 +1,4 @@
+use crate::widgets::layout_builders;
 use crate::{Align, Area, Canvas, LayoutOptions, Widget};
 
 /// How a [`Flex`] shares out space its children do not use, along the direction they are placed
@@ -208,6 +209,8 @@ impl Flex {
         self
     }
 
+    layout_builders!(layout);
+
     /// Sets the column offset within the container.
     pub fn x(mut self, n: u16) -> Self {
         self.layout.x = Some(n);
@@ -293,16 +296,18 @@ impl Widget for Flex {
     }
 
     fn default_height(&self) -> u16 {
+        let natural = |child: &dyn Widget| {
+            let layout = child.layout();
+            layout
+                .clamp_height(layout.height.unwrap_or_else(|| child.default_height()))
+                .saturating_add(layout.margin.vertical())
+        };
+
         if self.direction == FlexDirection::Row {
             return self
                 .children
                 .iter()
-                .map(|child| {
-                    child
-                        .layout()
-                        .height
-                        .unwrap_or_else(|| child.default_height())
-                })
+                .map(|c| natural(c.as_ref()))
                 .max()
                 .unwrap_or(1);
         }
@@ -313,16 +318,7 @@ impl Widget for Flex {
         }
 
         let gaps = self.gap.saturating_mul(count.saturating_sub(1));
-        let content: u16 = self
-            .children
-            .iter()
-            .map(|child| {
-                child
-                    .layout()
-                    .height
-                    .unwrap_or_else(|| child.default_height())
-            })
-            .sum();
+        let content: u16 = self.children.iter().map(|c| natural(c.as_ref())).sum();
 
         gaps.saturating_add(content)
     }
@@ -332,12 +328,18 @@ impl Widget for Flex {
             return 1;
         }
 
-        let width = self.layout.width.unwrap_or(width).min(width);
+        let width = self.layout.sized_width(width).unwrap_or(width).min(width);
+        // A percentage height has nothing to be a percentage of while measuring, so only a
+        // fixed height counts here. Margins add rows of their own.
         let measure = |child: &dyn Widget, available: u16| {
             let layout = child.layout();
-            layout.height.unwrap_or_else(|| {
-                child.height_for_width(layout.width.unwrap_or(available).min(available))
-            })
+            let room = available.saturating_sub(layout.margin.horizontal());
+            let height = layout.height.unwrap_or_else(|| {
+                child.height_for_width(layout.sized_width(room).unwrap_or(room).min(room))
+            });
+            layout
+                .clamp_height(height)
+                .saturating_add(layout.margin.vertical())
         };
 
         match self.direction {
@@ -363,16 +365,18 @@ impl Widget for Flex {
     }
 
     fn default_width(&self) -> u16 {
+        let natural = |child: &dyn Widget| {
+            let layout = child.layout();
+            layout
+                .clamp_width(layout.width.unwrap_or_else(|| child.default_width()))
+                .saturating_add(layout.margin.horizontal())
+        };
+
         if self.direction == FlexDirection::Column {
             return self
                 .children
                 .iter()
-                .map(|child| {
-                    child
-                        .layout()
-                        .width
-                        .unwrap_or_else(|| child.default_width())
-                })
+                .map(|c| natural(c.as_ref()))
                 .max()
                 .unwrap_or(1);
         }
@@ -383,16 +387,7 @@ impl Widget for Flex {
         }
 
         let gaps = self.gap.saturating_mul(count.saturating_sub(1));
-        let content: u16 = self
-            .children
-            .iter()
-            .map(|child| {
-                child
-                    .layout()
-                    .width
-                    .unwrap_or_else(|| child.default_width())
-            })
-            .sum();
+        let content: u16 = self.children.iter().map(|c| natural(c.as_ref())).sum();
 
         gaps.saturating_add(content)
     }
@@ -406,7 +401,10 @@ fn layout_column(
     align: AlignItems,
 ) -> Vec<Area> {
     let main_sizes = compute_main_sizes(children, area.height, gap, MainAxis::Height, area.width);
-    let spacing = Spacing::new(justify, &main_sizes, area.height, gap);
+    let total_margin = children.iter().fold(0_u16, |total, child| {
+        total.saturating_add(child.layout().margin.vertical())
+    });
+    let spacing = Spacing::new(justify, &main_sizes, area.height, gap, total_margin);
     let mut areas = Vec::with_capacity(children.len());
     let mut main_pos = area.y.saturating_add(spacing.leading);
 
@@ -415,24 +413,31 @@ fn layout_column(
             main_pos = main_pos.saturating_add(spacing.before(i));
         }
 
-        let explicit = child.layout().width;
+        let layout = child.layout();
+        let margin = layout.margin;
+        let room = area.width.saturating_sub(margin.horizontal());
+        let explicit = layout.sized_width(room);
         let (cross, offset) = match align.placement() {
-            None => (explicit.unwrap_or(area.width).min(area.width), 0),
+            None => (layout.clamp_width(explicit.unwrap_or(room)).min(room), 0),
             Some(align) => {
                 let natural = explicit.unwrap_or_else(|| child.default_width());
-                let cross = natural.min(area.width);
-                (cross, align.offset(cross, area.width))
+                let cross = layout.clamp_width(natural).min(room);
+                (cross, align.offset(cross, room))
             }
         };
 
+        main_pos = main_pos.saturating_add(margin.top);
+
         areas.push(Area {
-            x: area.x.saturating_add(offset),
+            x: area.x.saturating_add(margin.left).saturating_add(offset),
             y: main_pos,
             width: cross,
             height: *main_size,
         });
 
-        main_pos = main_pos.saturating_add(*main_size);
+        main_pos = main_pos
+            .saturating_add(*main_size)
+            .saturating_add(margin.bottom);
     }
 
     areas
@@ -446,7 +451,10 @@ fn layout_row(
     align: AlignItems,
 ) -> Vec<Area> {
     let main_sizes = compute_main_sizes(children, area.width, gap, MainAxis::Width, area.height);
-    let spacing = Spacing::new(justify, &main_sizes, area.width, gap);
+    let total_margin = children.iter().fold(0_u16, |total, child| {
+        total.saturating_add(child.layout().margin.horizontal())
+    });
+    let spacing = Spacing::new(justify, &main_sizes, area.width, gap, total_margin);
     let mut areas = Vec::with_capacity(children.len());
     let mut main_pos = area.x.saturating_add(spacing.leading);
 
@@ -455,26 +463,33 @@ fn layout_row(
             main_pos = main_pos.saturating_add(spacing.before(i));
         }
 
-        let explicit = child.layout().height;
+        let layout = child.layout();
+        let margin = layout.margin;
+        let room = area.height.saturating_sub(margin.vertical());
+        let explicit = layout.sized_height(room);
         let (cross, offset) = match align.placement() {
-            None => (explicit.unwrap_or(area.height).min(area.height), 0),
+            None => (layout.clamp_height(explicit.unwrap_or(room)).min(room), 0),
             Some(align) => {
                 // Measured at the width the child was actually given, so wrapped text reports
                 // the rows it will really use.
                 let natural = explicit.unwrap_or_else(|| child.height_for_width(*main_size));
-                let cross = natural.min(area.height);
-                (cross, align.offset(cross, area.height))
+                let cross = layout.clamp_height(natural).min(room);
+                (cross, align.offset(cross, room))
             }
         };
 
+        main_pos = main_pos.saturating_add(margin.left);
+
         areas.push(Area {
             x: main_pos,
-            y: area.y.saturating_add(offset),
+            y: area.y.saturating_add(margin.top).saturating_add(offset),
             width: *main_size,
             height: cross,
         });
 
-        main_pos = main_pos.saturating_add(*main_size);
+        main_pos = main_pos
+            .saturating_add(*main_size)
+            .saturating_add(margin.right);
     }
 
     areas
@@ -488,12 +503,20 @@ struct Spacing {
 }
 
 impl Spacing {
-    fn new(justify: Justify, main_sizes: &[u16], main_limit: u16, gap: u16) -> Self {
+    fn new(
+        justify: Justify,
+        main_sizes: &[u16],
+        main_limit: u16,
+        gap: u16,
+        total_margin: u16,
+    ) -> Self {
         let count = main_sizes.len();
         let total_gap = gap.saturating_mul(count.saturating_sub(1) as u16);
         let used = main_sizes
             .iter()
-            .fold(total_gap, |total, size| total.saturating_add(*size));
+            .fold(total_gap.saturating_add(total_margin), |total, size| {
+                total.saturating_add(*size)
+            });
         // Children that fill or overflow their container leave nothing to share out, which is
         // what happens whenever one of them has a flex weight.
         let slack = main_limit.saturating_sub(used);
@@ -576,7 +599,14 @@ fn compute_main_sizes(
     }
 
     let total_gap = gap.saturating_mul(count.saturating_sub(1) as u16);
-    let main_available = main_limit.saturating_sub(total_gap);
+    // Margins come out of the space before anything is shared, so a child with a margin asks
+    // for less room rather than its siblings getting less.
+    let total_margin = children.iter().fold(0_u16, |total, child| {
+        total.saturating_add(main_margin(child.layout(), axis))
+    });
+    let main_available = main_limit
+        .saturating_sub(total_gap)
+        .saturating_sub(total_margin);
     let mut main_sizes = vec![0_u16; count];
     let mut flex_entries: Vec<(usize, u16)> = Vec::new();
     let mut fixed_total = 0_u16;
@@ -584,12 +614,12 @@ fn compute_main_sizes(
     for (i, child) in children.iter().enumerate() {
         let layout = child.layout();
         let explicit = match axis {
-            MainAxis::Height => layout.height,
-            MainAxis::Width => layout.width,
+            MainAxis::Height => layout.sized_height(main_available),
+            MainAxis::Width => layout.sized_width(main_available),
         };
 
         if let Some(size) = explicit {
-            main_sizes[i] = size.min(main_available);
+            main_sizes[i] = clamp_main(layout, size, axis).min(main_available);
             fixed_total = fixed_total.saturating_add(main_sizes[i]);
             continue;
         }
@@ -599,11 +629,17 @@ fn compute_main_sizes(
             continue;
         }
 
+        let child_cross = cross.saturating_sub(cross_margin(layout, axis));
         let intrinsic = match axis {
-            MainAxis::Height => child.height_for_width(layout.width.unwrap_or(cross).min(cross)),
+            MainAxis::Height => child.height_for_width(
+                layout
+                    .sized_width(child_cross)
+                    .unwrap_or(child_cross)
+                    .min(child_cross),
+            ),
             MainAxis::Width => child.default_width(),
         };
-        main_sizes[i] = intrinsic.min(main_available);
+        main_sizes[i] = clamp_main(layout, intrinsic, axis).min(main_available);
         fixed_total = fixed_total.saturating_add(main_sizes[i]);
     }
 
@@ -622,11 +658,37 @@ fn compute_main_sizes(
             (remaining as u32 * *weight as u32 / flex_total_weight as u32) as u16
         };
 
+        // A clamped flexible child keeps its limit and leaves the rest of its share unused,
+        // which `justify` then has something to do with.
+        let share = clamp_main(children[*child_idx].layout(), share, axis);
         main_sizes[*child_idx] = share;
         distributed = distributed.saturating_add(share);
     }
 
     main_sizes
+}
+
+// The margin a child takes along the main axis.
+fn main_margin(layout: &LayoutOptions, axis: MainAxis) -> u16 {
+    match axis {
+        MainAxis::Width => layout.margin.horizontal(),
+        MainAxis::Height => layout.margin.vertical(),
+    }
+}
+
+// The margin a child takes across the main axis.
+fn cross_margin(layout: &LayoutOptions, axis: MainAxis) -> u16 {
+    match axis {
+        MainAxis::Width => layout.margin.vertical(),
+        MainAxis::Height => layout.margin.horizontal(),
+    }
+}
+
+fn clamp_main(layout: &LayoutOptions, size: u16, axis: MainAxis) -> u16 {
+    match axis {
+        MainAxis::Width => layout.clamp_width(size),
+        MainAxis::Height => layout.clamp_height(size),
+    }
 }
 
 #[cfg(test)]
@@ -781,6 +843,86 @@ mod tests {
 
         assert_eq!(across(FlexDirection::Row), ('a', 'b', ' '));
         assert_eq!(across(FlexDirection::Column), ('a', ' ', 'b'));
+    }
+
+    #[test]
+    fn a_margin_takes_room_along_the_row() {
+        let row = Flex::row()
+            .child(Text::new("a"))
+            .child(Text::new("b").margin_x(1));
+
+        assert_eq!(render_to_text(&row, 6, 1), "a b   ");
+    }
+
+    #[test]
+    fn a_margin_comes_out_of_the_space_before_it_is_shared() {
+        // Eight columns, less two of margin, leaves six for the flexible child.
+        let row = Flex::row().child(Text::new("abcdefgh").flex(1).margin_x(1));
+        assert_eq!(render_to_text(&row, 8, 1), " abcdef ");
+    }
+
+    #[test]
+    fn a_margin_insets_a_child_across_the_row() {
+        let row = Flex::row().child(Div::new().border(true).width(3).margin_y(1));
+        assert_eq!(render_to_text(&row, 3, 5), "   \n╭─╮\n│ │\n╰─╯\n   ");
+    }
+
+    #[test]
+    fn a_margin_takes_rows_down_a_column() {
+        let column = Flex::column()
+            .child(Text::new("a"))
+            .child(Text::new("b").margin_top(2));
+
+        assert_eq!(render_to_text(&column, 1, 4), "a\n \n \nb");
+    }
+
+    #[test]
+    fn a_margin_is_counted_when_a_column_measures_itself() {
+        let plain = Flex::column().child(Text::new("a"));
+        assert_eq!(plain.height_for_width(10), 1);
+
+        let spaced = Flex::column().child(Text::new("a").margin_y(2));
+        assert_eq!(spaced.height_for_width(10), 5);
+    }
+
+    #[test]
+    fn a_percentage_width_is_taken_of_the_row() {
+        let row = Flex::row().child(Text::new("abcdefgh").width_percent(50));
+        assert_eq!(render_to_text(&row, 8, 1), "abcd    ");
+    }
+
+    #[test]
+    fn a_maximum_holds_a_flexible_child_back() {
+        let row = Flex::row().child(Text::new("abcdefgh").flex(1).max_width(4));
+        assert_eq!(render_to_text(&row, 8, 1), "abcd    ");
+    }
+
+    #[test]
+    fn space_a_clamped_flexible_child_gives_up_can_be_justified() {
+        let row = Flex::row()
+            .justify(Justify::End)
+            .child(Text::new("abcdefgh").flex(1).max_width(4));
+
+        assert_eq!(render_to_text(&row, 8, 1), "    abcd");
+    }
+
+    #[test]
+    fn a_minimum_keeps_a_flexible_child_open() {
+        let row = Flex::row()
+            .child(Text::new("ab").align(Align::End).flex(1).min_width(6))
+            .child(Text::new("xy").width(6));
+
+        // Two flexible columns would be left, but the minimum takes six.
+        assert_eq!(render_to_text(&row, 8, 1), "    abxy");
+    }
+
+    #[test]
+    fn a_minimum_across_the_row_holds_a_child_tall() {
+        let row = Flex::row()
+            .align(AlignItems::Start)
+            .child(Div::new().border(true).width(3).min_height(4));
+
+        assert_eq!(render_to_text(&row, 3, 5), "╭─╮\n│ │\n│ │\n╰─╯\n   ");
     }
     #[test]
     fn justify_start_is_the_default() {

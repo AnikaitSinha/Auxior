@@ -1,3 +1,4 @@
+use crate::widgets::layout_builders;
 use crossterm::style::Color;
 
 use super::bar::interpolate_color;
@@ -194,6 +195,8 @@ impl ScrollGraph {
         self.layout.flex = Some(n);
         self
     }
+
+    layout_builders!(layout);
 
     /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {

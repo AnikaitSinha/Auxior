@@ -1,13 +1,14 @@
+use crate::widgets::layout_builders;
 use crate::{Canvas, LayoutOptions, Text, Widget};
 
 /// Lines of [`Text`] stacked top to bottom.
 ///
 /// Draws nothing if the space is smaller than [`min_len`](List::min_len()) ×
-/// [`min_height`](List::min_height()).
+/// [`min_rows`](List::min_rows()).
 pub struct List {
     layout: LayoutOptions,
     elements: Vec<Text>,
-    min_height: u16,
+    min_rows: u16,
     min_len: u16,
 }
 
@@ -23,7 +24,7 @@ impl List {
         List {
             layout: LayoutOptions::default(),
             elements: Vec::new(),
-            min_height: 2,
+            min_rows: 2,
             min_len: 6,
         }
     }
@@ -35,8 +36,11 @@ impl List {
     }
 
     /// Sets the fewest rows the list needs to draw at all.
-    pub fn min_height(mut self, min_height: u16) -> Self {
-        self.min_height = min_height;
+    ///
+    /// Not to be confused with [`min_height`](crate::LayoutOptions::min_height), which asks
+    /// the container for room rather than refusing to draw without it.
+    pub fn min_rows(mut self, min_rows: u16) -> Self {
+        self.min_rows = min_rows;
         self
     }
 
@@ -77,26 +81,31 @@ impl List {
         self
     }
 
+    layout_builders!(layout);
+
     /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
     }
 
     // The rows the elements need, at `width` if it is known. Never fewer than
-    // `min_height`, so a container gives the list the room it insists on.
+    // `min_rows`, so a container gives the list the room it insists on.
     fn rows(&self, width: Option<u16>) -> u16 {
         self.elements
             .iter()
             .fold(0_u16, |total, element| {
+                let layout = element.layout();
+                let margin = layout.margin;
                 let rows = match width {
                     Some(width) => {
-                        element.height_for_width(element.layout().width.unwrap_or(width).min(width))
+                        let room = width.saturating_sub(margin.horizontal());
+                        element.height_for_width(layout.sized_width(room).unwrap_or(room).min(room))
                     }
                     None => element.default_height(),
                 };
-                total.saturating_add(rows)
+                total.saturating_add(layout.clamp_height(rows).saturating_add(margin.vertical()))
             })
-            .max(self.min_height)
+            .max(self.min_rows)
     }
 }
 
@@ -108,24 +117,35 @@ impl Widget for List {
             return;
         }
 
-        if width < self.min_len || height < self.min_height {
+        if width < self.min_len || height < self.min_rows {
             return;
         }
 
         let mut row: u16 = 0;
         for element in &self.elements {
-            if row < height {
-                let item_w = element.layout().width.unwrap_or(width).min(width);
-                let item_h = element
-                    .height_for_width(item_w)
-                    .min(height.saturating_sub(row));
-
-                let mut row_canvas = canvas.subcanvas(0, row, item_w, item_h);
-                element.render(&mut row_canvas);
-                row = row.saturating_add(item_h);
-            } else {
+            if row >= height {
                 return;
             }
+
+            let layout = element.layout();
+            let margin = layout.margin;
+            let room = width.saturating_sub(margin.horizontal());
+            let item_w = layout
+                .clamp_width(layout.sized_width(room).unwrap_or(room))
+                .min(room);
+
+            row = row.saturating_add(margin.top);
+            if row >= height {
+                return;
+            }
+
+            let item_h = layout
+                .clamp_height(element.height_for_width(item_w))
+                .min(height.saturating_sub(row));
+
+            let mut row_canvas = canvas.subcanvas(margin.left, row, item_w, item_h);
+            element.render(&mut row_canvas);
+            row = row.saturating_add(item_h).saturating_add(margin.bottom);
         }
     }
 
@@ -154,6 +174,7 @@ impl Widget for List {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::render_to_text;
     use crate::{Area, Buffer};
 
     fn render_list(list: &List, w: u16, h: u16) -> Buffer {
@@ -167,7 +188,7 @@ mod tests {
     fn stacks_elements_vertically() {
         let list = List::new()
             .min_len(4)
-            .min_height(2)
+            .min_rows(2)
             .add_element(Text::new("One"))
             .add_element(Text::new("Two"));
 
@@ -186,7 +207,7 @@ mod tests {
 
     #[test]
     fn too_short_canvas_does_not_render() {
-        let list = List::new().min_height(4).add_element(Text::new("Hello"));
+        let list = List::new().min_rows(4).add_element(Text::new("Hello"));
 
         let buf = render_list(&list, 10, 2);
         assert_eq!(buf.get(0, 0).unwrap().ch, ' ');
@@ -196,7 +217,7 @@ mod tests {
     fn clips_when_list_exceeds_canvas_height() {
         let list = List::new()
             .min_len(4)
-            .min_height(2)
+            .min_rows(2)
             .add_element(Text::new("A"))
             .add_element(Text::new("B"))
             .add_element(Text::new("C"));
@@ -263,5 +284,23 @@ mod tests {
 
         assert_eq!(buf.get(0, 0).unwrap().ch, 'a');
         assert_eq!(buf.get(0, 1).unwrap().ch, 'p');
+    }
+    #[test]
+    fn a_margin_insets_an_element_and_takes_rows() {
+        let list = List::new()
+            .add_element(Text::new("a"))
+            .add_element(Text::new("b").margin_top(1).margin_left(2));
+
+        // Six columns, because a list refuses to draw in less than `min_len`.
+        assert_eq!(render_to_text(&list, 6, 3), "a     \n      \n  b   ");
+    }
+
+    #[test]
+    fn a_margin_is_counted_when_the_list_measures_itself() {
+        let list = List::new()
+            .min_rows(0)
+            .add_element(Text::new("a").margin_y(1));
+
+        assert_eq!(list.height_for_width(4), 3);
     }
 }

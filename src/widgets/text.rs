@@ -1,3 +1,4 @@
+use crate::widgets::layout_builders;
 use std::borrow::Cow;
 use std::ops::Range;
 
@@ -226,6 +227,8 @@ impl Text {
         self.layout.flex = Some(n);
         self
     }
+
+    layout_builders!(layout);
 
     /// The text, as given.
     pub fn content(&self) -> &str {

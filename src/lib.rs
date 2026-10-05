@@ -85,8 +85,8 @@ pub use core::{
 pub use widgets::{
     Align, AlignItems, Animation, AnimationState, Bar, BorderAlign, BorderChars, BorderSide,
     BorderSides, BorderStyle, Button, Direction, Div, DivOptions, Filter, Fit, Flex, FlexDirection,
-    Grid, Heading, Image, Input, InputState, Justify, LayoutOptions, Markdown, Picture, PixelMode,
-    Repeat, ScrollGraph, ScrollState, ScrollView, Text, Widget,
+    Grid, Heading, Image, Input, InputState, Justify, LayoutOptions, Margin, Markdown, Picture,
+    PixelMode, Repeat, ScrollGraph, ScrollState, ScrollView, Text, Widget,
 };
 
 pub use media::{GifFrame, RawGif};

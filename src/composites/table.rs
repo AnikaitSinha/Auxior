@@ -1,14 +1,15 @@
+use crate::widgets::layout_builders;
 use crate::{Canvas, LayoutOptions, Text, Widget};
 
 /// Rows of [`Text`] cells in columns, with an optional header row.
 ///
 /// Columns share the width in proportion to their [`min_len_per_col`](Table::min_len_per_col())
 /// minimums. The table draws nothing if the space is narrower than those minimums or shorter
-/// than [`min_height`](Table::min_height()).
+/// than [`min_rows`](Table::min_rows()).
 pub struct Table {
     layout: LayoutOptions,
     rows: Vec<Vec<Text>>,
-    min_height: u16,
+    min_rows: u16,
     num_of_cols: u16,
     min_len_per_col: Vec<u16>,
     header: bool,
@@ -27,7 +28,7 @@ impl Table {
         Table {
             layout: LayoutOptions::default(),
             rows: Vec::new(),
-            min_height: 2,
+            min_rows: 2,
             num_of_cols: 0,
             min_len_per_col: Vec::new(),
             header: false,
@@ -71,8 +72,8 @@ impl Table {
     }
 
     /// Sets the fewest rows the table needs to draw at all.
-    pub fn min_height(mut self, min_height: u16) -> Self {
-        self.min_height = min_height;
+    pub fn min_rows(mut self, min_rows: u16) -> Self {
+        self.min_rows = min_rows;
         self
     }
 
@@ -113,6 +114,8 @@ impl Table {
         self.layout.flex = Some(n);
         self
     }
+
+    layout_builders!(layout);
 
     /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
@@ -206,7 +209,7 @@ impl Widget for Table {
         }
 
         let min_width = self.default_width().max(self.num_of_cols);
-        if width < min_width || height < self.min_height {
+        if width < min_width || height < self.min_rows {
             return;
         }
 

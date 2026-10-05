@@ -22,4 +22,5 @@ pub use markdown::{Heading, Markdown};
 pub use scroll_graph::ScrollGraph;
 pub use scroll_view::{ScrollState, ScrollView};
 pub use text::{Align, Text};
-pub use widget::{LayoutOptions, Widget};
+pub(crate) use widget::layout_builders;
+pub use widget::{LayoutOptions, Margin, Widget};

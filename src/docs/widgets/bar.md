@@ -28,7 +28,7 @@ assert_eq!(buf.get(9, 0).unwrap().fg, Color::DarkGrey); // The unfilled half.
 | [`start_color(c)`](crate::Bar::start_color) | red | Color at the empty end. |
 | [`end_color(c)`](crate::Bar::end_color) | green | Color at the full end. |
 | [`bg(c)`](crate::Bar::bg) | the terminal's color | Color of the unfilled `■`s. |
-| `width`, `height`, `flex`, `x`, `y` | | Layout. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | | Layout. |
 
 ## Drawing
 

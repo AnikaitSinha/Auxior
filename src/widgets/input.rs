@@ -1,3 +1,4 @@
+use crate::widgets::layout_builders;
 use std::cell::{Cell as StdCell, RefCell};
 use std::rc::Rc;
 
@@ -405,6 +406,8 @@ impl Input {
         self.layout.flex = Some(n);
         self
     }
+
+    layout_builders!(layout);
 
     /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {

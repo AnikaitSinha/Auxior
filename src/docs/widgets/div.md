@@ -37,7 +37,7 @@ assert_eq!(row(4), "╰────────────╯");
 | [`border_button(button)`](crate::Div::border_button) | | A button drawn into the border. |
 | [`dirty(on)`](crate::Div::dirty) | on | Whether the div redraws itself when drawn incrementally. |
 | [`options(options)`](crate::Div::options) | | Applies a prepared [`DivOptions`](crate::DivOptions). |
-| `width`, `height`, `flex`, `x`, `y` | | Layout. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | | Layout. |
 
 ## Its own area
 

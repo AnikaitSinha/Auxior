@@ -1,3 +1,4 @@
+use crate::widgets::layout_builders;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -185,6 +186,8 @@ impl Button {
         self.layout.flex = Some(n);
         self
     }
+
+    layout_builders!(layout);
 
     /// Sets a key that presses the button whether or not it has focus, such as `'s'` or
     /// `KeyCode::F(2)`.

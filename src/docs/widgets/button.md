@@ -39,7 +39,7 @@ let add = Button::push("Add")
 | [`active(on)`](crate::Button::active) | Whether a toggle shows as on. |
 | [`fg(color)`](crate::Button::fg) | Label color. |
 | [`side`](crate::Button::side), [`align`](crate::Button::align) | Where a border button sits. |
-| `width`, `height`, `flex`, `x`, `y` | Layout. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | Layout. |
 
 ## Reading a button back
 

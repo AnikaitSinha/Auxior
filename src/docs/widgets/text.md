@@ -26,7 +26,7 @@ assert_eq!(buf.get(0, 1).unwrap().fg, Color::Cyan);
 | [`wrap(on)`](crate::Text::wrap()) | off | Break long lines between words instead of cutting them off. |
 | [`align(align)`](crate::Text::align) | [`Align::Start`](crate::Align) | Where each row sits in the width it is given. |
 | [`ellipsis(on)`](crate::Text::ellipsis) | off | End text that does not fit with `…` instead of just stopping. |
-| `width`, `height`, `flex`, `x`, `y` | | Layout; see [layout](../concepts/layout.md). |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | | Layout; see [layout](../concepts/layout.md). |
 
 A `Text` has one style for all of its characters. For mixed styles, place several
 `Text` widgets side by side in a [`Flex`](crate::Flex) row, or use

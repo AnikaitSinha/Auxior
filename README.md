@@ -9,7 +9,8 @@ should show, and Auxior works out what to redraw.
 
 ## What's in it
 
-- **Layout** — `Div` for boxes that stack their children, with borders in
+- **Layout** — margins, percentage sizes and min/max limits on any widget;
+  `Div` for boxes that stack their children, with borders in
   several line styles on any set of edges and an alignable title and footer,
   `Flex` for rows and columns that share space, with CSS-style `justify` and
   `align`, `Grid` for rows and columns together.

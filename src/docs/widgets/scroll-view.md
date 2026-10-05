@@ -30,7 +30,7 @@ assert_eq!(buf.get(11, 3).unwrap().ch, '█'); // The scrollbar thumb, at the bo
 | [`new(&state)`](crate::ScrollView::new) | | A view scrolled according to `state`. |
 | [`child(widget)`](crate::ScrollView::child) | none | The content. Use a `Flex` column for several widgets. |
 | [`scrollbar(on)`](crate::ScrollView::scrollbar) | on | Shows the scrollbar while content overflows. |
-| `width`, `height`, `flex`, `x`, `y` | | Layout. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | | Layout. |
 
 ## The state
 

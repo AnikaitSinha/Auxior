@@ -32,7 +32,7 @@ assert_eq!(row(5), "│ Don't forget the eggs.");
 | [`new(source)`](crate::Markdown::new) | The Markdown text. |
 | [`on_link(f)`](crate::Markdown::on_link) | Runs `f` with a link's destination when it's clicked. |
 | [`headings(width)`](crate::Markdown::headings) | Lists the headings and the rows they land on. |
-| `width`, `height`, `flex`, `x`, `y` | Layout. |
+| `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | Layout. |
 
 ## What it renders
 

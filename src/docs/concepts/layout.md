@@ -30,12 +30,94 @@ methods of the same names:
 |---|---|---|
 | `width` | `.width(n)` | A fixed width in columns. |
 | `height` | `.height(n)` | A fixed height in rows. |
+| `width_percent` | `.width_percent(n)` | A width as a percentage of the space the container has for the widget. |
+| `height_percent` | `.height_percent(n)` | A height as a percentage of that space. |
+| `min_width`, `max_width` | `.min_width(n)`, `.max_width(n)` | Limits the width is held between. |
+| `min_height`, `max_height` | `.min_height(n)`, `.max_height(n)` | Limits the height is held between. |
+| `margin` | `.margin(n)`, `.margin_x(n)`, `.margin_y(n)`, `.margin_top(n)`, … | Blank space kept outside the widget. |
 | `flex` | `.flex(n)` | A share of leftover space, relative to other flexible siblings. |
 | `x` | `.x(n)` | A column offset inside the container. |
 | `y` | `.y(n)` | A row offset inside the container. |
 
 All of them are optional, and each container reads the ones that make sense for
 it. A fixed size is always clipped to the space the container has.
+
+### Percentages
+
+A percentage is of the space the container has for that widget, not of the whole
+screen, and it is rounded down so it can never overflow. A fixed size wins if
+both are set:
+
+```rust
+use auxior::{Div, Text};
+use auxior::testing::render_to_text;
+
+let div = Div::new().child(Text::new("abcdefgh").width_percent(50));
+assert_eq!(render_to_text(&div, 8, 1), "abcd    ");
+```
+
+A percentage **height** can only be worked out while drawing, when the container's
+own height is known. While a container is measuring itself — working out how tall
+it needs to be from its children — there is no height to take a percentage of yet,
+so only a fixed height counts there.
+
+### Minimums and maximums
+
+`min_*` and `max_*` hold whatever size a widget would otherwise get between two
+limits. They apply to every way a size is arrived at: a fixed size, a percentage,
+a measured natural size, and a flex share. A minimum larger than the maximum
+wins, as it does in CSS.
+
+They are what makes a panel adaptive but sane — a sidebar that shares the space
+but is never unusably narrow or absurdly wide:
+
+```rust
+use auxior::{Flex, Text};
+
+let _row = Flex::row()
+    .child(Text::new("sidebar").flex(1).min_width(20).max_width(40))
+    .child(Text::new("main").flex(3));
+```
+
+A clamp can leave space unused: a flexible child held back by a `max_width` gives
+up the rest of its share, and nothing else claims it. In a `Flex` that leftover
+space is then [`justify`](crate::Flex::justify)'s to place. A clamp can also push
+the total past the space available, in which case children are clipped at the
+end, exactly as they are when fixed sizes do not fit.
+
+### Margins
+
+A margin is blank space kept **outside** a widget — the opposite of a
+[`Div`](crate::Div)'s padding, which is space inside its border.
+
+```rust
+use auxior::{Div, Text};
+use auxior::testing::render_to_text;
+
+let div = Div::new()
+    .child(Text::new("a"))
+    .child(Text::new("b").margin_top(1).margin_left(2));
+
+assert_eq!(render_to_text(&div, 4, 4), "a   
+    
+    
+  b ");
+```
+
+Three things to know:
+
+- **The margin comes out of the space the child had**, so the child is smaller,
+  not its container larger. A child with `margin_x(1)` in four columns is drawn
+  two columns wide.
+- **It is a request to the container.** A widget drawn straight onto a canvas of
+  its own has no container to take the space out of, so its margin does nothing.
+- **Containers count it when they measure themselves.** A `Div` that sizes itself
+  to its children includes each child's top and bottom margin in its height, on
+  top of the blank row it already leaves between children.
+
+In a [`Grid`](crate::Grid), where a track is shared by several children, a child's
+margin counts toward the size of its track and then insets the child within its
+cell.
 
 ## Measuring: how much space a widget needs
 

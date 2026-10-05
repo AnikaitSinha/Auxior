@@ -1,3 +1,4 @@
+use crate::widgets::layout_builders;
 use unicode_width::UnicodeWidthChar;
 
 use crate::{Align, Area, Canvas, Cell, RenderContext, Text};
@@ -469,6 +470,8 @@ impl Div {
         self
     }
 
+    layout_builders!(options.layout);
+
     /// Adds a child below the previous ones.
     pub fn child(mut self, child: impl Widget + 'static) -> Self {
         self.children.push(Box::new(child));
@@ -561,16 +564,26 @@ impl Widget for Div {
         let mut placed = 0_u16;
         for child in &self.children {
             let layout = child.layout();
-            let child_width = layout.width.unwrap_or(inner).min(inner);
-            let height = layout
-                .height
-                .unwrap_or_else(|| child.height_for_width(child_width));
+            let margin = layout.margin;
+            let child_inner = inner.saturating_sub(margin.horizontal());
+            let child_width = layout
+                .clamp_width(layout.sized_width(child_inner).unwrap_or(child_inner))
+                .min(child_inner);
+            // A percentage height has nothing to be a percentage of while measuring, since
+            // that is what is being worked out, so only a fixed height counts here.
+            let height = layout.clamp_height(
+                layout
+                    .height
+                    .unwrap_or_else(|| child.height_for_width(child_width)),
+            );
+            // A margin takes rows of its own, above and below the child.
+            let rows = height.saturating_add(margin.vertical());
             match layout.y {
-                Some(y) => placed = placed.max(y.saturating_add(height)),
+                Some(y) => placed = placed.max(y.saturating_add(rows)),
                 None => {
                     flow = Some(match flow {
-                        Some(total) => total.saturating_add(1).saturating_add(height),
-                        None => height,
+                        Some(total) => total.saturating_add(1).saturating_add(rows),
+                        None => rows,
                     })
                 }
             }
@@ -676,21 +689,38 @@ fn content_area(canvas: &Canvas, options: &DivOptions) -> Area {
 
 fn resolve_child_area(child: &dyn Widget, parent: Area, flow_y: &mut u16) -> Area {
     let layout = child.layout();
+    let margin = layout.margin;
 
-    let width = layout.width.unwrap_or(parent.width).min(parent.width);
+    // The margin comes out of the room the child had, so the child is smaller rather than the
+    // div larger.
+    let inner_width = parent.width.saturating_sub(margin.horizontal());
+    let inner_height = parent.height.saturating_sub(margin.vertical());
+
+    let width = layout
+        .clamp_width(layout.sized_width(inner_width).unwrap_or(inner_width))
+        .min(inner_width);
 
     let height = layout
-        .height
-        .unwrap_or_else(|| child.height_for_width(width))
-        .min(parent.height);
+        .clamp_height(
+            layout
+                .sized_height(inner_height)
+                .unwrap_or_else(|| child.height_for_width(width)),
+        )
+        .min(inner_height);
 
-    let x = parent.x.saturating_add(layout.x.unwrap_or(0));
+    let x = parent
+        .x
+        .saturating_add(layout.x.unwrap_or(0))
+        .saturating_add(margin.left);
 
     let y = if let Some(offset_y) = layout.y {
-        parent.y.saturating_add(offset_y)
+        parent.y.saturating_add(offset_y).saturating_add(margin.top)
     } else {
-        let y = *flow_y;
-        *flow_y = flow_y.saturating_add(height.saturating_add(1));
+        let y = flow_y.saturating_add(margin.top);
+        *flow_y = y
+            .saturating_add(height)
+            .saturating_add(margin.bottom)
+            .saturating_add(1);
         y
     };
 
@@ -1580,6 +1610,91 @@ mod tests {
 
         let top: String = (0..24).map(|x| buf.get(x, 0).unwrap().ch).collect();
         assert_eq!(top, "╭ A rather long tit ╮x╭╮");
+    }
+
+    #[test]
+    fn a_margin_insets_a_child_and_takes_rows_of_its_own() {
+        let div = Div::new().child(Text::new("ab").margin(1));
+        assert_eq!(render_to_text(&div, 5, 3), "     \n ab  \n     ");
+    }
+
+    #[test]
+    fn a_margin_comes_out_of_the_room_the_child_had() {
+        // The div is four columns wide; a margin of one on each side leaves two for the text.
+        let div = Div::new().child(Text::new("abcd").margin_x(1));
+        assert_eq!(render_to_text(&div, 4, 1), " ab ");
+    }
+
+    #[test]
+    fn margins_stack_with_the_blank_row_between_children() {
+        let div = Div::new()
+            .child(Text::new("a"))
+            .child(Text::new("b").margin_top(2));
+
+        assert_eq!(render_to_text(&div, 1, 5), "a\n \n \n \nb");
+    }
+
+    #[test]
+    fn a_margin_is_counted_when_the_div_measures_itself() {
+        let plain = Div::new().child(Text::new("a"));
+        assert_eq!(plain.height_for_width(10), 1);
+
+        let spaced = Div::new().child(Text::new("a").margin_y(1));
+        assert_eq!(spaced.height_for_width(10), 3);
+    }
+
+    #[test]
+    fn a_percentage_width_is_taken_of_the_content_area() {
+        let div = Div::new().child(Text::new("abcdefgh").width_percent(50));
+        assert_eq!(render_to_text(&div, 8, 1), "abcd    ");
+    }
+
+    #[test]
+    fn a_percentage_is_taken_of_the_room_inside_the_border() {
+        // Ten columns, less two for the border, leaves eight; half of that is four.
+        let div = Div::new()
+            .border(true)
+            .child(Text::new("abcdefgh").width_percent(50));
+
+        assert_eq!(
+            render_to_text(&div, 10, 3).lines().nth(1).unwrap(),
+            "│abcd    │"
+        );
+    }
+
+    #[test]
+    fn a_minimum_width_holds_a_child_open() {
+        // End-aligned text shows how wide its area really is.
+        let narrow = Div::new().child(Text::new("ab").width(2).align(Align::End));
+        assert_eq!(render_to_text(&narrow, 8, 1), "ab      ");
+
+        let held_open = Div::new().child(Text::new("ab").width(2).min_width(5).align(Align::End));
+        assert_eq!(render_to_text(&held_open, 8, 1), "   ab   ");
+    }
+
+    #[test]
+    fn a_maximum_width_keeps_a_child_narrow() {
+        let div = Div::new().child(Text::new("abcdefgh").max_width(3));
+        assert_eq!(render_to_text(&div, 8, 1), "abc     ");
+    }
+
+    #[test]
+    fn a_maximum_height_keeps_a_child_short() {
+        // The text wraps to three rows in three columns; the limit cuts it to two.
+        let tall = Div::new().child(Text::new("aa bb cc").wrap(true));
+        assert_eq!(render_to_text(&tall, 3, 4), "aa \nbb \ncc \n   ");
+
+        let capped = Div::new().child(Text::new("aa bb cc").wrap(true).max_height(2));
+        assert_eq!(render_to_text(&capped, 3, 4), "aa \nbb \n   \n   ");
+    }
+
+    #[test]
+    fn a_minimum_height_takes_rows_in_the_flow() {
+        let div = Div::new()
+            .child(Text::new("a").min_height(3))
+            .child(Text::new("b"));
+
+        assert_eq!(render_to_text(&div, 1, 6), "a\n \n \n \nb\n ");
     }
     #[test]
     fn every_border_style_draws_its_own_characters() {
