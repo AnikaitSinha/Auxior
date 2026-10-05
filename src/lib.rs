@@ -83,10 +83,10 @@ pub use core::{
     KeyBinding, RenderContext, Terminal,
 };
 pub use widgets::{
-    Align, Animation, AnimationState, Bar, BorderAlign, BorderChars, BorderSide, BorderSides,
-    BorderStyle, Button, Direction, Div, DivOptions, Filter, Fit, Flex, FlexDirection, Grid,
-    Heading, Image, Input, InputState, LayoutOptions, Markdown, Picture, PixelMode, Repeat,
-    ScrollGraph, ScrollState, ScrollView, Text, Widget,
+    Align, AlignItems, Animation, AnimationState, Bar, BorderAlign, BorderChars, BorderSide,
+    BorderSides, BorderStyle, Button, Direction, Div, DivOptions, Filter, Fit, Flex, FlexDirection,
+    Grid, Heading, Image, Input, InputState, Justify, LayoutOptions, Markdown, Picture, PixelMode,
+    Repeat, ScrollGraph, ScrollState, ScrollView, Text, Widget,
 };
 
 pub use media::{GifFrame, RawGif};

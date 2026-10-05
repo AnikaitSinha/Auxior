@@ -129,9 +129,15 @@ Along the main axis, each child's size is decided like this:
 5. Whatever space the first two kinds didn't use is split between the flexible
    children in proportion to their weights. The last flexible child gets any
    rounding remainder, so the space is always used exactly.
+6. If there are no flexible children, space may be left over.
+   [`justify`](crate::Flex::justify) decides where it goes — the children's block
+   can sit at the start, the middle or the end, or the space can be shared
+   between the gaps. It defaults to the start.
 
 Across the main axis, every child fills the container unless it has a fixed size
-of its own.
+of its own, or the flex has an [`align`](crate::Flex::align) other than
+`Stretch`, which gives each child its natural size across the axis and places it
+within the space instead.
 
 ```rust
 use auxior::{Area, Buffer, Canvas, Flex, Text, Widget};

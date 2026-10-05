@@ -34,6 +34,9 @@ below describes 0.1.0 as it stands.
 - `Div` borders in five line styles (`Rounded`, `Square`, `Double`, `Thick`,
   `Ascii`) or characters of your own, drawn on any set of edges, with an
   alignable title and footer.
+- `Flex` shares out space the children leave with `justify` (`Start`, `Center`,
+  `End`, `SpaceBetween`, `SpaceEvenly`, `SpaceAround`) and places them across
+  the direction with `align` (`Stretch`, `Start`, `Center`, `End`).
 - `Div`, `Flex` and `Grid` for layout, with fixed sizes, flex weights and
   width-aware measurement.
 

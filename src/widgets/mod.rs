@@ -14,7 +14,7 @@ mod widget;
 pub use bar::{Bar, Direction, interpolate_color};
 pub use button::{BorderAlign, BorderSide, Button};
 pub use div::{BorderChars, BorderSides, BorderStyle, Div, DivOptions};
-pub use flex::{Flex, FlexDirection};
+pub use flex::{AlignItems, Flex, FlexDirection, Justify};
 pub use grid::Grid;
 pub use image::{Animation, AnimationState, Fit, Image, Picture, PixelMode, Repeat};
 pub use input::{Filter, Input, InputState};

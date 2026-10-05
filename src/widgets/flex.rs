@@ -1,4 +1,83 @@
-use crate::{Area, Canvas, LayoutOptions, Widget};
+use crate::{Align, Area, Canvas, LayoutOptions, Widget};
+
+/// How a [`Flex`] shares out space its children do not use, along the direction they are placed
+/// in.
+///
+/// Only matters when there is space left over: a child with a [`flex`](Flex::flex) weight takes
+/// everything that is left, so a flex with one has nothing to share out.
+///
+/// ```
+/// use auxior::{Flex, Justify, Text};
+/// use auxior::testing::render_to_text;
+///
+/// let row = Flex::row()
+///     .justify(Justify::End)
+///     .child(Text::new("ab"))
+///     .child(Text::new("cd"));
+///
+/// assert_eq!(render_to_text(&row, 8, 1), "    abcd");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Justify {
+    /// Packed against the start: the left of a row, the top of a column. The default.
+    #[default]
+    Start,
+    /// Packed together in the middle, with any odd cell left over going to the end.
+    Center,
+    /// Packed against the end: the right of a row, the bottom of a column.
+    End,
+    /// Spread out, with the first and last children against the edges and the space shared
+    /// between the gaps. With fewer than two children there are no gaps, so this packs to the
+    /// start.
+    SpaceBetween,
+    /// Spread out with equal space before, between and after the children.
+    SpaceEvenly,
+    /// Spread out so each child has equal space on both sides, which leaves half as much at the
+    /// two edges as between any two children.
+    SpaceAround,
+}
+
+// Cells cannot be split, so the three spread-out settings share whatever is left over as
+// evenly as whole cells allow, and the earlier gaps take the extra cell when it does not
+// divide evenly.
+
+/// Where a [`Flex`] puts its children across the direction they are placed in.
+///
+/// ```
+/// use auxior::{AlignItems, Flex, Text};
+/// use auxior::testing::render_to_text;
+///
+/// let row = Flex::row()
+///     .align(AlignItems::End)
+///     .child(Text::new("x"));
+///
+/// assert_eq!(render_to_text(&row, 1, 3), " \n \nx");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlignItems {
+    /// Each child fills the container across the direction, unless it has a size of its own.
+    /// The default.
+    #[default]
+    Stretch,
+    /// Against the start: the top of a row, the left of a column.
+    Start,
+    /// Centered, with any odd cell left over going to the end.
+    Center,
+    /// Against the end: the bottom of a row, the right of a column.
+    End,
+}
+
+impl AlignItems {
+    // The alignment to place a child with, or `None` when it should fill the space instead.
+    fn placement(self) -> Option<Align> {
+        match self {
+            AlignItems::Stretch => None,
+            AlignItems::Start => Some(Align::Start),
+            AlignItems::Center => Some(Align::Center),
+            AlignItems::End => Some(Align::End),
+        }
+    }
+}
 
 /// The direction a [`Flex`] places its children in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +110,8 @@ pub enum FlexDirection {
 pub struct Flex {
     direction: FlexDirection,
     gap: u16,
+    justify: Justify,
+    align: AlignItems,
     layout: LayoutOptions,
     children: Vec<Box<dyn Widget>>,
 }
@@ -41,6 +122,8 @@ impl Flex {
         Self {
             direction: FlexDirection::Column,
             gap: 0,
+            justify: Justify::Start,
+            align: AlignItems::Stretch,
             layout: LayoutOptions::default(),
             children: Vec::new(),
         }
@@ -51,6 +134,8 @@ impl Flex {
         Self {
             direction: FlexDirection::Row,
             gap: 0,
+            justify: Justify::Start,
+            align: AlignItems::Stretch,
             layout: LayoutOptions::default(),
             children: Vec::new(),
         }
@@ -66,6 +151,53 @@ impl Flex {
     /// Sets the blank cells between neighboring children.
     pub fn gap(mut self, n: u16) -> Self {
         self.gap = n;
+        self
+    }
+
+    /// Sets how space the children do not use is shared out along the direction they are
+    /// placed in. Defaults to [`Justify::Start`].
+    ///
+    /// This only has an effect when there is space left over. A child with a
+    /// [`flex`](Flex::flex) weight takes all of it, so a flex with one has nothing to share.
+    ///
+    /// ```
+    /// use auxior::{Flex, Justify, Text};
+    /// use auxior::testing::render_to_text;
+    ///
+    /// let row = Flex::row()
+    ///     .justify(Justify::SpaceBetween)
+    ///     .child(Text::new("a"))
+    ///     .child(Text::new("b"));
+    ///
+    /// assert_eq!(render_to_text(&row, 5, 1), "a   b");
+    /// ```
+    pub fn justify(mut self, justify: Justify) -> Self {
+        self.justify = justify;
+        self
+    }
+
+    /// Sets where children sit across the direction they are placed in. Defaults to
+    /// [`AlignItems::Stretch`], where each child fills the space.
+    ///
+    /// Any other setting gives a child its natural size across the direction instead, since
+    /// there is nothing to align a child that fills the space.
+    ///
+    /// ```
+    /// use auxior::{AlignItems, Div, Flex};
+    /// use auxior::testing::render_to_text;
+    ///
+    /// // Stretched, the div is as tall as the row.
+    /// let row = Flex::row().child(Div::new().border(true).width(3));
+    /// assert_eq!(render_to_text(&row, 3, 4), "╭─╮\n│ │\n│ │\n╰─╯");
+    ///
+    /// // Centered, it is only as tall as it needs to be.
+    /// let row = Flex::row()
+    ///     .align(AlignItems::Center)
+    ///     .child(Div::new().border(true).width(3));
+    /// assert_eq!(render_to_text(&row, 3, 5), "   \n╭─╮\n│ │\n╰─╯\n   ");
+    /// ```
+    pub fn align(mut self, align: AlignItems) -> Self {
+        self.align = align;
         self
     }
 
@@ -133,8 +265,12 @@ impl Widget for Flex {
         };
 
         let child_areas = match self.direction {
-            FlexDirection::Column => layout_column(&self.children, area, self.gap),
-            FlexDirection::Row => layout_row(&self.children, area, self.gap),
+            FlexDirection::Column => {
+                layout_column(&self.children, area, self.gap, self.justify, self.align)
+            }
+            FlexDirection::Row => {
+                layout_row(&self.children, area, self.gap, self.justify, self.align)
+            }
         };
 
         for (child, child_area) in self.children.iter().zip(child_areas) {
@@ -262,50 +398,162 @@ impl Widget for Flex {
     }
 }
 
-fn layout_column(children: &[Box<dyn Widget>], area: Area, gap: u16) -> Vec<Area> {
+fn layout_column(
+    children: &[Box<dyn Widget>],
+    area: Area,
+    gap: u16,
+    justify: Justify,
+    align: AlignItems,
+) -> Vec<Area> {
     let main_sizes = compute_main_sizes(children, area.height, gap, MainAxis::Height, area.width);
+    let spacing = Spacing::new(justify, &main_sizes, area.height, gap);
     let mut areas = Vec::with_capacity(children.len());
-    let mut main_pos = area.y;
+    let mut main_pos = area.y.saturating_add(spacing.leading);
 
-    for (child, main_size) in children.iter().zip(main_sizes.iter()) {
-        let cross = child.layout().width.unwrap_or(area.width).min(area.width);
+    for (i, (child, main_size)) in children.iter().zip(main_sizes.iter()).enumerate() {
+        if i > 0 {
+            main_pos = main_pos.saturating_add(spacing.before(i));
+        }
+
+        let explicit = child.layout().width;
+        let (cross, offset) = match align.placement() {
+            None => (explicit.unwrap_or(area.width).min(area.width), 0),
+            Some(align) => {
+                let natural = explicit.unwrap_or_else(|| child.default_width());
+                let cross = natural.min(area.width);
+                (cross, align.offset(cross, area.width))
+            }
+        };
 
         areas.push(Area {
-            x: area.x,
+            x: area.x.saturating_add(offset),
             y: main_pos,
             width: cross,
             height: *main_size,
         });
 
-        main_pos = main_pos.saturating_add(main_size.saturating_add(gap));
+        main_pos = main_pos.saturating_add(*main_size);
     }
 
     areas
 }
 
-fn layout_row(children: &[Box<dyn Widget>], area: Area, gap: u16) -> Vec<Area> {
+fn layout_row(
+    children: &[Box<dyn Widget>],
+    area: Area,
+    gap: u16,
+    justify: Justify,
+    align: AlignItems,
+) -> Vec<Area> {
     let main_sizes = compute_main_sizes(children, area.width, gap, MainAxis::Width, area.height);
+    let spacing = Spacing::new(justify, &main_sizes, area.width, gap);
     let mut areas = Vec::with_capacity(children.len());
-    let mut main_pos = area.x;
+    let mut main_pos = area.x.saturating_add(spacing.leading);
 
-    for (child, main_size) in children.iter().zip(main_sizes.iter()) {
-        let cross = child
-            .layout()
-            .height
-            .unwrap_or(area.height)
-            .min(area.height);
+    for (i, (child, main_size)) in children.iter().zip(main_sizes.iter()).enumerate() {
+        if i > 0 {
+            main_pos = main_pos.saturating_add(spacing.before(i));
+        }
+
+        let explicit = child.layout().height;
+        let (cross, offset) = match align.placement() {
+            None => (explicit.unwrap_or(area.height).min(area.height), 0),
+            Some(align) => {
+                // Measured at the width the child was actually given, so wrapped text reports
+                // the rows it will really use.
+                let natural = explicit.unwrap_or_else(|| child.height_for_width(*main_size));
+                let cross = natural.min(area.height);
+                (cross, align.offset(cross, area.height))
+            }
+        };
 
         areas.push(Area {
             x: main_pos,
-            y: area.y,
+            y: area.y.saturating_add(offset),
             width: *main_size,
             height: cross,
         });
 
-        main_pos = main_pos.saturating_add(main_size.saturating_add(gap));
+        main_pos = main_pos.saturating_add(*main_size);
     }
 
     areas
+}
+
+// Where the children start, and how much room goes before each one after the first.
+struct Spacing {
+    leading: u16,
+    // The gap before child `i`, at index `i - 1`.
+    gaps: Vec<u16>,
+}
+
+impl Spacing {
+    fn new(justify: Justify, main_sizes: &[u16], main_limit: u16, gap: u16) -> Self {
+        let count = main_sizes.len();
+        let total_gap = gap.saturating_mul(count.saturating_sub(1) as u16);
+        let used = main_sizes
+            .iter()
+            .fold(total_gap, |total, size| total.saturating_add(*size));
+        // Children that fill or overflow their container leave nothing to share out, which is
+        // what happens whenever one of them has a flex weight.
+        let slack = main_limit.saturating_sub(used);
+
+        let gaps_between = count.saturating_sub(1);
+        let mut gaps = vec![gap; gaps_between];
+        let leading = match justify {
+            Justify::Start => 0,
+            Justify::Center => slack / 2,
+            Justify::End => slack,
+            Justify::SpaceBetween if gaps_between == 0 => 0,
+            Justify::SpaceBetween => {
+                for (slot, extra) in gaps.iter_mut().zip(spread(slack, gaps_between)) {
+                    *slot = slot.saturating_add(extra);
+                }
+                0
+            }
+            Justify::SpaceEvenly => {
+                // One slot before the children, one between each pair, one after.
+                let slots = spread(slack, count + 1);
+                for (slot, extra) in gaps.iter_mut().zip(slots.iter().skip(1)) {
+                    *slot = slot.saturating_add(*extra);
+                }
+                slots[0]
+            }
+            Justify::SpaceAround => {
+                // Half a share on each side of every child: the two outer halves are the edges,
+                // and each gap is two halves put together.
+                let halves = spread(slack, count * 2);
+                for (i, slot) in gaps.iter_mut().enumerate() {
+                    *slot = slot
+                        .saturating_add(halves[i * 2 + 1])
+                        .saturating_add(halves[i * 2 + 2]);
+                }
+                halves[0]
+            }
+        };
+
+        Self { leading, gaps }
+    }
+
+    fn before(&self, index: usize) -> u16 {
+        self.gaps.get(index - 1).copied().unwrap_or(0)
+    }
+}
+
+// Shares `total` out over `slots`, giving the earlier slots the extra cell when it does not
+// divide evenly.
+fn spread(total: u16, slots: usize) -> Vec<u16> {
+    if slots == 0 {
+        return Vec::new();
+    }
+
+    let slots_u32 = slots as u32;
+    let base = (total as u32 / slots_u32) as u16;
+    let remainder = (total as u32 % slots_u32) as usize;
+
+    (0..slots)
+        .map(|i| if i < remainder { base + 1 } else { base })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -384,6 +632,7 @@ fn compute_main_sizes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::render_to_text;
     use crate::{Buffer, Div, Text};
 
     fn render_flex(flex: &Flex, width: u16, height: u16) -> Buffer {
@@ -532,5 +781,186 @@ mod tests {
 
         assert_eq!(across(FlexDirection::Row), ('a', 'b', ' '));
         assert_eq!(across(FlexDirection::Column), ('a', ' ', 'b'));
+    }
+    #[test]
+    fn justify_start_is_the_default() {
+        let row = Flex::row().child(Text::new("ab")).child(Text::new("cd"));
+        assert_eq!(render_to_text(&row, 8, 1), "abcd    ");
+    }
+
+    #[test]
+    fn justify_center_puts_the_odd_cell_at_the_end() {
+        let row = || Flex::row().child(Text::new("ab")).child(Text::new("cd"));
+
+        assert_eq!(
+            render_to_text(&row().justify(Justify::Center), 8, 1),
+            "  abcd  "
+        );
+        assert_eq!(
+            render_to_text(&row().justify(Justify::Center), 7, 1),
+            " abcd  "
+        );
+    }
+
+    #[test]
+    fn justify_end_packs_against_the_far_edge() {
+        let row = Flex::row()
+            .justify(Justify::End)
+            .child(Text::new("ab"))
+            .child(Text::new("cd"));
+
+        assert_eq!(render_to_text(&row, 8, 1), "    abcd");
+    }
+
+    #[test]
+    fn space_between_pushes_the_children_to_the_edges() {
+        let row = Flex::row()
+            .justify(Justify::SpaceBetween)
+            .child(Text::new("a"))
+            .child(Text::new("b"))
+            .child(Text::new("c"));
+
+        assert_eq!(render_to_text(&row, 9, 1), "a   b   c");
+    }
+
+    #[test]
+    fn space_between_with_one_child_packs_to_the_start() {
+        let row = Flex::row()
+            .justify(Justify::SpaceBetween)
+            .child(Text::new("a"));
+
+        assert_eq!(render_to_text(&row, 4, 1), "a   ");
+    }
+
+    #[test]
+    fn space_evenly_leaves_the_same_room_everywhere() {
+        let row = Flex::row()
+            .justify(Justify::SpaceEvenly)
+            .child(Text::new("a"))
+            .child(Text::new("b"));
+
+        assert_eq!(render_to_text(&row, 8, 1), "  a  b  ");
+    }
+
+    #[test]
+    fn space_around_leaves_half_as_much_at_the_edges() {
+        let row = Flex::row()
+            .justify(Justify::SpaceAround)
+            .child(Text::new("a"))
+            .child(Text::new("b"));
+
+        // Six cells of slack over four half-shares: the earlier ones take the extra.
+        assert_eq!(render_to_text(&row, 8, 1), "  a   b ");
+    }
+
+    #[test]
+    fn an_uneven_share_goes_to_the_earlier_gaps() {
+        let row = Flex::row()
+            .justify(Justify::SpaceBetween)
+            .child(Text::new("a"))
+            .child(Text::new("b"))
+            .child(Text::new("c"));
+
+        // Five cells of slack over two gaps: the earlier gap takes the extra, and the last
+        // child still ends flush against the far edge.
+        assert_eq!(render_to_text(&row, 8, 1), "a   b  c");
+    }
+
+    #[test]
+    fn justify_adds_to_the_gap_rather_than_replacing_it() {
+        let row = Flex::row()
+            .gap(1)
+            .justify(Justify::SpaceBetween)
+            .child(Text::new("a"))
+            .child(Text::new("b"));
+
+        assert_eq!(render_to_text(&row, 6, 1), "a    b");
+    }
+
+    #[test]
+    fn a_flex_child_leaves_nothing_to_justify() {
+        let row = Flex::row()
+            .justify(Justify::End)
+            .child(Text::new("ab"))
+            .child(Text::new("cd").flex(1));
+
+        assert_eq!(render_to_text(&row, 8, 1), "abcd    ");
+    }
+
+    #[test]
+    fn justify_works_down_a_column_too() {
+        let column = Flex::column()
+            .justify(Justify::End)
+            .child(Text::new("a"))
+            .child(Text::new("b"));
+
+        assert_eq!(render_to_text(&column, 1, 4), " \n \na\nb");
+    }
+
+    #[test]
+    fn children_stretch_across_the_row_by_default() {
+        let row = Flex::row().child(Div::new().border(true).width(3));
+        assert_eq!(render_to_text(&row, 3, 4), "╭─╮\n│ │\n│ │\n╰─╯");
+    }
+
+    #[test]
+    fn aligned_children_take_their_natural_size_across_the_row() {
+        let row = || Flex::row().child(Div::new().border(true).width(3));
+
+        assert_eq!(
+            render_to_text(&row().align(AlignItems::Start), 3, 5),
+            "╭─╮\n│ │\n╰─╯\n   \n   "
+        );
+        assert_eq!(
+            render_to_text(&row().align(AlignItems::Center), 3, 5),
+            "   \n╭─╮\n│ │\n╰─╯\n   "
+        );
+        assert_eq!(
+            render_to_text(&row().align(AlignItems::End), 3, 5),
+            "   \n   \n╭─╮\n│ │\n╰─╯"
+        );
+    }
+
+    #[test]
+    fn alignment_across_a_column_moves_children_sideways() {
+        let column = || Flex::column().child(Text::new("ab"));
+
+        assert_eq!(
+            render_to_text(&column().align(AlignItems::End), 5, 1),
+            "   ab"
+        );
+        assert_eq!(
+            render_to_text(&column().align(AlignItems::Center), 6, 1),
+            "  ab  "
+        );
+    }
+
+    #[test]
+    fn an_explicit_cross_size_is_kept_whatever_the_alignment() {
+        let row = Flex::row()
+            .align(AlignItems::End)
+            .child(Div::new().border(true).width(3).height(3));
+
+        assert_eq!(render_to_text(&row, 3, 4), "   \n╭─╮\n│ │\n╰─╯");
+    }
+
+    #[test]
+    fn an_aligned_child_is_measured_at_the_width_it_is_given() {
+        // The text wraps to two rows in three columns, so that is the height it is aligned at.
+        let row = Flex::row()
+            .align(AlignItems::End)
+            .child(Text::new("ab cd").wrap(true).width(3));
+
+        assert_eq!(render_to_text(&row, 3, 4), "   \n   \nab \ncd ");
+    }
+
+    #[test]
+    fn justify_and_align_work_together() {
+        let row = Flex::row()
+            .justify(Justify::Center)
+            .align(AlignItems::Center)
+            .child(Text::new("ab"));
+
+        assert_eq!(render_to_text(&row, 6, 3), "      \n  ab  \n      ");
     }
 }
