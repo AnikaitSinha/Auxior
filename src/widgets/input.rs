@@ -137,9 +137,25 @@ impl InputState {
         self.inner.cursor.get().min(self.inner.text.borrow().len())
     }
 
-    // Stable for as long as this state lives, so focus stays on the field
-    // however the widgets around it change.
-    fn focus_id(&self) -> FocusId {
+    /// The field's focus id, for focusing it from code with
+    /// [`Focus::set`](crate::Focus::set).
+    ///
+    /// It comes from the state itself rather than from the widget, so it is stable for as long
+    /// as this state lives, however the widgets around the field change.
+    ///
+    /// ```
+    /// use auxior::{Focus, Input, InputState};
+    /// use auxior::testing::TestTerminal;
+    ///
+    /// let search = InputState::new();
+    /// Focus::set(search.focus_id());
+    ///
+    /// // The field is focused from the first frame, with no Tab needed.
+    /// let mut term = TestTerminal::new(10, 1);
+    /// term.draw(&Input::text(&search));
+    /// assert_eq!(term.cursor(), Some((0, 0)));
+    /// ```
+    pub fn focus_id(&self) -> FocusId {
         FocusId::from_handle(Rc::as_ptr(&self.inner) as usize)
     }
 
@@ -587,6 +603,10 @@ impl Widget for Input {
             let column = cursor_column.saturating_sub(scroll);
             if column < field {
                 canvas.set(column, 0, Cell::with_fg(at, self.fg).set_underline());
+                // The terminal's own cursor goes to the same cell, so it blinks where typing
+                // will land and the terminal knows where the caret is. The underline stays
+                // as well, for terminals that are set never to show a cursor.
+                canvas.place_cursor(column, 0);
             }
         }
 
@@ -685,6 +705,67 @@ mod tests {
             .collect::<String>()
             .trim_end()
             .to_string()
+    }
+
+    #[test]
+    fn a_focused_field_asks_for_the_terminal_cursor() {
+        use crate::testing::TestTerminal;
+
+        Focus::clear();
+        let state = InputState::with_text("abc");
+        let mut term = TestTerminal::new(10, 1);
+
+        term.draw(&Input::text(&state));
+        assert_eq!(term.cursor(), None, "not focused, so no cursor");
+
+        Focus::set(state.focus_id());
+        term.draw(&Input::text(&state));
+        assert_eq!(term.cursor(), Some((3, 0)), "just past the text");
+    }
+
+    #[test]
+    fn the_cursor_follows_the_caret_within_the_field() {
+        use crate::testing::TestTerminal;
+
+        Focus::clear();
+        let state = InputState::with_text("abc");
+        Focus::set(state.focus_id());
+        state.move_left();
+
+        let mut term = TestTerminal::new(10, 1);
+        term.draw(&Input::text(&state));
+
+        assert_eq!(term.cursor(), Some((2, 0)));
+    }
+
+    #[test]
+    fn the_cursor_follows_the_text_as_a_long_field_scrolls() {
+        use crate::testing::TestTerminal;
+
+        Focus::clear();
+        let state = InputState::with_text("abcdefgh");
+        Focus::set(state.focus_id());
+
+        // Four columns of field: the text has scrolled, so the caret is at the right edge.
+        let mut term = TestTerminal::new(4, 1);
+        term.draw(&Input::text(&state));
+
+        assert_eq!(term.cursor(), Some((3, 0)));
+    }
+
+    #[test]
+    fn a_password_field_puts_the_cursor_in_columns_not_bytes() {
+        use crate::testing::TestTerminal;
+
+        Focus::clear();
+        let state = InputState::with_text("héllo");
+        Focus::set(state.focus_id());
+
+        let mut term = TestTerminal::new(10, 1);
+        term.draw(&Input::password(&state));
+
+        // Five masked characters, however many bytes they took.
+        assert_eq!(term.cursor(), Some((5, 0)));
     }
 
     #[test]

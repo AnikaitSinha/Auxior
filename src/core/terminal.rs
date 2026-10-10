@@ -1,3 +1,4 @@
+use std::cell::Cell as StdCell;
 use std::io::{self, BufWriter, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, Once, TryLockError};
@@ -29,6 +30,18 @@ fn toggle<W: Write>(
         *tracked = Some(wanted);
     }
     Ok(())
+}
+
+// What a flush does with the terminal's own cursor once the cells are written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CursorOut {
+    // Nothing asked for it and it is already hidden, so nothing is sent.
+    Leave,
+    // It was shown last frame and nothing asked for it this one.
+    Hide,
+    // Move it here, and show it if it was hidden. The move is always sent, because writing
+    // cells has left the cursor wherever the last one was.
+    Place { x: u16, y: u16, show: bool },
 }
 
 // A whole flush is written into one buffer and handed to the terminal in a
@@ -237,6 +250,20 @@ fn install_panic_hook() {
     });
 }
 
+fn write_cursor<W: Write>(writer: &mut W, cursor: CursorOut) -> io::Result<()> {
+    match cursor {
+        CursorOut::Leave => {}
+        CursorOut::Hide => queue!(writer, Hide)?,
+        CursorOut::Place { x, y, show } => {
+            queue!(writer, MoveTo(x, y))?;
+            if show {
+                queue!(writer, Show)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn restore_terminal() -> io::Result<()> {
     if !release_session() {
         return Ok(());
@@ -262,6 +289,8 @@ pub struct Terminal {
     height: u16,
     // Whether crossterm raw mode / alternate screen are active.
     initialized: bool,
+    // Whether the terminal's own cursor is currently shown. It starts hidden, by `init`.
+    cursor_shown: StdCell<bool>,
 }
 
 impl Terminal {
@@ -296,6 +325,7 @@ impl Terminal {
             width,
             height,
             initialized: true,
+            cursor_shown: StdCell::new(false),
         })
     }
 
@@ -370,9 +400,16 @@ impl Terminal {
         buffer: &Buffer,
         coords: &[(u16, u16)],
         wrap_width: u16,
+        cursor: CursorOut,
         writer: &mut W,
     ) -> io::Result<()> {
         if coords.is_empty() {
+            // The cursor still moves even when no cell changed: focus can leave a field
+            // without changing anything on screen.
+            write_cursor(writer, cursor)?;
+            if cursor != CursorOut::Leave {
+                writer.flush()?;
+            }
             return Ok(());
         }
 
@@ -395,14 +432,40 @@ impl Terminal {
             state.write_buffer_cell(writer, buffer, x, y, wrap_width)?;
         }
 
+        // Last, so the cell writes do not drag the cursor away from it again.
+        write_cursor(writer, cursor)?;
+
         writer.flush()?;
         Ok(())
     }
 
-    pub(crate) fn flush_cells(&self, buffer: &Buffer, coords: &[(u16, u16)]) -> io::Result<()> {
+    pub(crate) fn flush_cells(
+        &self,
+        buffer: &Buffer,
+        coords: &[(u16, u16)],
+        cursor: Option<(u16, u16)>,
+    ) -> io::Result<()> {
+        let out = self.resolve_cursor(cursor);
         let stdout = io::stdout().lock();
         let mut writer = BufWriter::with_capacity(FLUSH_BUFFER_CAPACITY, stdout);
-        Self::flush_cells_to(buffer, coords, self.width, &mut writer)
+        Self::flush_cells_to(buffer, coords, self.width, out, &mut writer)
+    }
+
+    // Works out what to send for the cursor, and remembers whether it ends up shown, so a
+    // field that keeps focus does not re-send `Show` every frame.
+    fn resolve_cursor(&self, requested: Option<(u16, u16)>) -> CursorOut {
+        match requested {
+            Some((x, y)) => {
+                let show = !self.cursor_shown.get();
+                self.cursor_shown.set(true);
+                CursorOut::Place { x, y, show }
+            }
+            None if self.cursor_shown.get() => {
+                self.cursor_shown.set(false);
+                CursorOut::Hide
+            }
+            None => CursorOut::Leave,
+        }
     }
 
     fn restore(&mut self) -> io::Result<()> {
@@ -415,6 +478,7 @@ impl Terminal {
             width,
             height,
             initialized: false,
+            cursor_shown: StdCell::new(false),
         }
     }
 
@@ -575,7 +639,14 @@ mod tests {
         buf.set(2, 0, Cell::new('C'));
 
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0), (2, 0)], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(
+            &buf,
+            &[(0, 0), (1, 0), (2, 0)],
+            buf.width,
+            CursorOut::Leave,
+            &mut out,
+        )
+        .unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert!(
@@ -596,7 +667,14 @@ mod tests {
         buf.set(4, 0, Cell::new('B'));
 
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[(0, 0), (4, 0)], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(
+            &buf,
+            &[(0, 0), (4, 0)],
+            buf.width,
+            CursorOut::Leave,
+            &mut out,
+        )
+        .unwrap();
 
         assert_eq!(move_to_count(&String::from_utf8_lossy(&out)), 2);
     }
@@ -610,7 +688,14 @@ mod tests {
         buf.set(0, 1, Cell::new('B'));
 
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[(1, 0), (0, 1)], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(
+            &buf,
+            &[(1, 0), (0, 1)],
+            buf.width,
+            CursorOut::Leave,
+            &mut out,
+        )
+        .unwrap();
 
         assert_eq!(move_to_count(&String::from_utf8_lossy(&out)), 2);
     }
@@ -629,7 +714,7 @@ mod tests {
 
         let coords = [(2, 1), (0, 0), (1, 1), (2, 0), (0, 1), (1, 0)];
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &coords, buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(&buf, &coords, buf.width, CursorOut::Leave, &mut out).unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert!(
@@ -651,7 +736,14 @@ mod tests {
         }
 
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0), (2, 0)], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(
+            &buf,
+            &[(0, 0), (1, 0), (2, 0)],
+            buf.width,
+            CursorOut::Leave,
+            &mut out,
+        )
+        .unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert_eq!(
@@ -667,7 +759,14 @@ mod tests {
         buf.set(0, 0, Cell::new('A'));
 
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[(0, 0), (99, 99)], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(
+            &buf,
+            &[(0, 0), (99, 99)],
+            buf.width,
+            CursorOut::Leave,
+            &mut out,
+        )
+        .unwrap();
 
         assert!(String::from_utf8_lossy(&out).contains('A'));
     }
@@ -794,7 +893,14 @@ mod tests {
         }
 
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0), (2, 0)], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(
+            &buf,
+            &[(0, 0), (1, 0), (2, 0)],
+            buf.width,
+            CursorOut::Leave,
+            &mut out,
+        )
+        .unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert_eq!(output.matches("\x1b[7m").count(), 1, "{output:?}");
@@ -802,10 +908,116 @@ mod tests {
     }
 
     #[test]
+    fn a_requested_cursor_is_placed_after_the_cells() {
+        let mut buf = Buffer::new(4, 1);
+        buf.set(0, 0, Cell::new('a'));
+
+        let mut out = Vec::new();
+        let cursor = CursorOut::Place {
+            x: 2,
+            y: 0,
+            show: true,
+        };
+        Terminal::flush_cells_to(&buf, &[(0, 0)], buf.width, cursor, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        let move_to = output
+            .rfind("\x1b[1;3H")
+            .expect("expected a move to (2, 0)");
+        let printed = output.find('a').expect("expected the cell");
+
+        assert!(move_to > printed, "the move must come last: {output:?}");
+        assert!(output.ends_with("\x1b[?25h"), "expected show: {output:?}");
+    }
+
+    #[test]
+    fn a_cursor_that_was_already_shown_is_only_moved() {
+        let buf = Buffer::new(4, 1);
+        let mut out = Vec::new();
+        let cursor = CursorOut::Place {
+            x: 1,
+            y: 0,
+            show: false,
+        };
+        Terminal::flush_cells_to(&buf, &[(0, 0)], buf.width, cursor, &mut out).unwrap();
+
+        let output = String::from_utf8_lossy(&out);
+        assert!(
+            output.contains("\x1b[1;2H"),
+            "expected the move: {output:?}"
+        );
+        assert!(
+            !output.contains("\x1b[?25h"),
+            "show is not needed: {output:?}"
+        );
+    }
+
+    #[test]
+    fn the_cursor_is_hidden_when_nothing_asks_for_it() {
+        let buf = Buffer::new(4, 1);
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[(0, 0)], buf.width, CursorOut::Hide, &mut out).unwrap();
+
+        assert!(String::from_utf8_lossy(&out).contains("\x1b[?25l"));
+    }
+
+    #[test]
+    fn the_cursor_still_moves_when_no_cell_changed() {
+        let buf = Buffer::new(4, 1);
+        let mut out = Vec::new();
+        let cursor = CursorOut::Place {
+            x: 3,
+            y: 0,
+            show: true,
+        };
+        Terminal::flush_cells_to(&buf, &[], buf.width, cursor, &mut out).unwrap();
+
+        // Focus can move from one field to another without changing a single cell.
+        assert!(String::from_utf8_lossy(&out).contains("\x1b[1;4H"));
+    }
+
+    #[test]
+    fn leaving_the_cursor_alone_writes_nothing() {
+        let buf = Buffer::new(4, 1);
+        let mut out = Vec::new();
+        Terminal::flush_cells_to(&buf, &[], buf.width, CursorOut::Leave, &mut out).unwrap();
+
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn a_request_is_resolved_against_what_the_terminal_shows() {
+        let term = Terminal::new_with_size(10, 2);
+
+        // Hidden to begin with, so the first request has to show it.
+        assert_eq!(
+            term.resolve_cursor(Some((1, 1))),
+            CursorOut::Place {
+                x: 1,
+                y: 1,
+                show: true
+            }
+        );
+        // Still shown, so the next frame only moves it.
+        assert_eq!(
+            term.resolve_cursor(Some((2, 1))),
+            CursorOut::Place {
+                x: 2,
+                y: 1,
+                show: false
+            }
+        );
+        // Nothing asked this frame, so it goes away.
+        assert_eq!(term.resolve_cursor(None), CursorOut::Hide);
+        // And stays away without re-sending anything.
+        assert_eq!(term.resolve_cursor(None), CursorOut::Leave);
+    }
+
+    #[test]
     fn flush_cells_writes_nothing_for_empty_coords() {
         let buf = Buffer::new(4, 4);
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(&buf, &[], buf.width, CursorOut::Leave, &mut out).unwrap();
         assert!(out.is_empty());
     }
 
@@ -818,7 +1030,7 @@ mod tests {
 
         let coords: Vec<(u16, u16)> = (0..4).map(|x| (x, 0)).collect();
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &coords, buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(&buf, &coords, buf.width, CursorOut::Leave, &mut out).unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains("a日b"), "one run: {output:?}");
@@ -833,7 +1045,14 @@ mod tests {
         buf.set(0, 1, Cell::new('b'));
 
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[(1, 0), (2, 0), (0, 1)], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(
+            &buf,
+            &[(1, 0), (2, 0), (0, 1)],
+            buf.width,
+            CursorOut::Leave,
+            &mut out,
+        )
+        .unwrap();
 
         assert_eq!(move_to_count(&String::from_utf8_lossy(&out)), 2);
     }
@@ -844,7 +1063,14 @@ mod tests {
         *buf.get_mut(1, 0).unwrap() = Cell::continuation_of(Cell::new('x'));
 
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0), (2, 0)], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(
+            &buf,
+            &[(0, 0), (1, 0), (2, 0)],
+            buf.width,
+            CursorOut::Leave,
+            &mut out,
+        )
+        .unwrap();
 
         assert!(!out.contains(&0));
         assert_eq!(move_to_count(&String::from_utf8_lossy(&out)), 1);
@@ -857,7 +1083,14 @@ mod tests {
         buf.set(1, 0, Cell::new('b'));
 
         let mut out = Vec::new();
-        Terminal::flush_cells_to(&buf, &[(0, 0), (1, 0)], buf.width, &mut out).unwrap();
+        Terminal::flush_cells_to(
+            &buf,
+            &[(0, 0), (1, 0)],
+            buf.width,
+            CursorOut::Leave,
+            &mut out,
+        )
+        .unwrap();
 
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains(" b"), "{output:?}");

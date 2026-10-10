@@ -3,7 +3,9 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 
-use super::{Buffer, FrameStats, KeyBinding, RenderContext, Terminal, begin_frame, dispatch_input};
+use super::{
+    Buffer, Cursor, FrameStats, KeyBinding, RenderContext, Terminal, begin_frame, dispatch_input,
+};
 
 /// Options for an [`App`]: frame rate, quit keys and mouse capture.
 ///
@@ -324,7 +326,9 @@ impl App {
                 ctx.diff_coords(&self.current)
             };
 
-            self.terminal.flush_cells(&self.current, &coords)?;
+            // Asked for during the render just done, and cleared again next `begin_frame`.
+            self.terminal
+                .flush_cells(&self.current, &coords, Cursor::requested())?;
 
             // Built after flushing, so the coordinates move in instead of being
             // copied every frame.

@@ -22,6 +22,10 @@ below describes 0.1.0 as it stands.
   and clickable links, with rustdoc's hidden-line convention in Rust examples.
 - `ScrollView` with keyboard and wheel scrolling, a scrollbar, and scrolling a
   newly focused widget into view.
+- `Tabs`: a row of labels with one selected, with arrow keys and clicking.
+- `Toast`: a message that shows for a while and goes away, timed by the clock.
+- `Spinner`: a one-character animation that needs no state, since the frame is
+  worked out from the clock rather than counted.
 - `Bar` and `ScrollGraph`, plus the `List`, `Table`, `StatusBar` and
   `SparklineGraph` composites.
 - `Image`: pictures and animations drawn as half blocks, braille or ASCII, sampled
@@ -58,6 +62,10 @@ below describes 0.1.0 as it stands.
   routed against the frame the user was looking at.
 - Wide and zero-width characters handled throughout: layout, wrapping, clipping
   and the renderer.
+- The terminal's own cursor can be asked for by a widget, through
+  `Canvas::place_cursor`, one frame at a time. `Input` uses it, so the caret
+  blinks where typing will land and IME and screen readers have somewhere to
+  point. `InputState::focus_id` makes a field focusable from code.
 - The terminal is restored on exit and on panic, with the panic message readable.
 
 ### Testing

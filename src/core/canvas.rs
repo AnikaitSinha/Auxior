@@ -177,6 +177,21 @@ impl<'a> Canvas<'a> {
         Area::new(self.x, self.y, self.width, self.height)
     }
 
+    /// Asks for the terminal's own cursor at `(local_x, local_y)` inside this canvas, for this
+    /// frame.
+    ///
+    /// Positions outside the canvas are ignored, the same way drawing outside it is. See
+    /// [`Cursor`](crate::Cursor) for what the request means and how long it lasts.
+    pub fn place_cursor(&self, local_x: u16, local_y: u16) {
+        if local_x >= self.width || local_y >= self.height {
+            return;
+        }
+        crate::Cursor::place(
+            self.x.saturating_add(local_x),
+            self.y.saturating_add(local_y),
+        );
+    }
+
     /// The whole underlying buffer, bypassing the canvas's clipping.
     pub fn buffer_mut(&mut self) -> &mut Buffer {
         self.buffer

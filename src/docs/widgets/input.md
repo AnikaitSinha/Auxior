@@ -35,6 +35,7 @@ frame. Clones share the same text.
 | [`set_text(text)`](crate::InputState::set_text), [`clear()`](crate::InputState::clear) | Replace or empty it. |
 | [`value()`](crate::InputState::value) | The text as a number, or `None`. |
 | [`is_empty()`](crate::InputState::is_empty), [`cursor()`](crate::InputState::cursor) | Current state. |
+| [`focus_id()`](crate::InputState::focus_id) | The field's focus id, to focus it from code with [`Focus::set`](crate::Focus::set). |
 
 ## Kinds and options
 
@@ -82,8 +83,11 @@ working while a field has focus.
 
 ## Drawing
 
-A field is one row tall and fills the width it is given. The cursor is drawn as
-an underline on the character it sits on, and only while the field has focus.
+A field is one row tall and fills the width it is given. While the field has
+focus, the cursor is drawn as an underline on the character it sits on, and the
+terminal's own cursor is put on that cell too, so it blinks where typing will
+land — see [the text cursor](../engine/terminal.md#the-text-cursor). The
+underline stays for terminals set never to show a cursor.
 
 Text longer than the field scrolls sideways to keep the cursor visible, and
 clicking a character puts the cursor there. Wide characters such as `日` are

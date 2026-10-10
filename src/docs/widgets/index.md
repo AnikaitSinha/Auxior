@@ -10,6 +10,9 @@ The building blocks every screen is made from.
 - [Bar](bar.md): a one-row progress bar
 - [ScrollGraph](scroll-graph.md): a graph of recent values, drawn in braille
 - [Image](image.md): a picture or an animation, drawn as coloured characters
+- [Spinner](spinner.md): a one-character animation for work in progress
+- [Toast](toast.md): a message that shows for a while and goes away
+- [Tabs](tabs.md): a row of labels with one selected
 
 **Containers** — widgets that arrange other widgets:
 

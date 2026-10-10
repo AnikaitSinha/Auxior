@@ -21,7 +21,7 @@
 //! The widget is given the whole screen. To check how a widget behaves at a particular size,
 //! put it inside a container that sizes it, or make the screen that size.
 
-use crate::{Area, Buffer, Canvas, Cell, RenderContext, Widget};
+use crate::{Area, Buffer, Canvas, Cell, Cursor, RenderContext, Widget};
 
 /// A pretend screen that widgets can be drawn into and read back from.
 ///
@@ -33,6 +33,7 @@ pub struct TestTerminal {
     current: Buffer,
     previous: Buffer,
     dirty: Vec<(u16, u16)>,
+    cursor: Option<(u16, u16)>,
 }
 
 impl TestTerminal {
@@ -42,6 +43,7 @@ impl TestTerminal {
             current: Buffer::new(width, height),
             previous: Buffer::new(width, height),
             dirty: Vec::new(),
+            cursor: None,
         }
     }
 
@@ -77,6 +79,8 @@ impl TestTerminal {
     pub fn draw_with(&mut self, draw: impl FnOnce(&mut Canvas, &mut RenderContext)) {
         self.previous.copy_buffer_from(&self.current);
         self.current.fill(Cell::empty());
+        // As a frame of a running app does, so a request belongs to this frame only.
+        Cursor::begin_frame();
 
         let area = Area::new_from_buffer(&self.current);
         let mut ctx = RenderContext::new(&self.previous);
@@ -85,6 +89,7 @@ impl TestTerminal {
             draw(&mut canvas, &mut ctx);
         }
         self.dirty = ctx.diff_coords(&self.current);
+        self.cursor = Cursor::requested();
     }
 
     /// Resizes the screen, blanking it and the previous frame.
@@ -186,6 +191,33 @@ impl TestTerminal {
     /// have had to redraw.
     pub fn changed(&self) -> Vec<(u16, u16)> {
         self.current.diff_region(&self.previous, self.area())
+    }
+
+    /// Where the last frame asked for the terminal's own cursor, if anywhere.
+    ///
+    /// A widget taking typed input asks for it through
+    /// [`Canvas::place_cursor`](crate::Canvas::place_cursor), so this is how a test checks that
+    /// the caret lands where it should. See [`Cursor`](crate::Cursor).
+    ///
+    /// ```
+    /// use auxior::{Focus, Input, InputState};
+    /// use auxior::testing::TestTerminal;
+    ///
+    /// let state = InputState::with_text("hi");
+    /// let mut term = TestTerminal::new(8, 1);
+    ///
+    /// // Nothing is focused yet, so the field does not ask for the cursor.
+    /// term.draw(&Input::text(&state));
+    /// assert_eq!(term.cursor(), None);
+    ///
+    /// Focus::set(state.focus_id());
+    /// term.draw(&Input::text(&state));
+    ///
+    /// // Two characters of text, so the caret sits in the third column.
+    /// assert_eq!(term.cursor(), Some((2, 0)));
+    /// ```
+    pub fn cursor(&self) -> Option<(u16, u16)> {
+        self.cursor
     }
 
     /// The cells the last frame both marked as redrawn and actually changed.

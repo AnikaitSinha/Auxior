@@ -85,6 +85,15 @@ pub mod widgets {
 
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/markdown.md"))]
     pub mod markdown {}
+
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/tabs.md"))]
+    pub mod tabs {}
+
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/toast.md"))]
+    pub mod toast {}
+
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/spinner.md"))]
+    pub mod spinner {}
 }
 
 pub mod composites {

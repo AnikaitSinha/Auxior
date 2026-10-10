@@ -47,6 +47,7 @@ it.
 | [`cell`](crate::testing::TestTerminal::cell) | One [`Cell`](crate::Cell), with its colors and attributes. |
 | [`find`](crate::testing::TestTerminal::find) | Where text first appears, as `(column, row)`. |
 | [`contains`](crate::testing::TestTerminal::contains) | Whether text appears on any one row. |
+| [`cursor`](crate::testing::TestTerminal::cursor) | Where the frame asked for the terminal's cursor, if anywhere. |
 | [`buffer`](crate::testing::TestTerminal::buffer) | The whole [`Buffer`](crate::Buffer), for anything else. |
 
 `row` and `to_text` skip the continuation cell that follows a double-width

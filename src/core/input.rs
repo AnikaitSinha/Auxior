@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
-use super::{AppEvent, Focus, KeyBinding, KeyMap, MouseMap};
+use super::{AppEvent, Cursor, Focus, KeyBinding, KeyMap, MouseMap};
 
 // Rows one notch of the mouse wheel scrolls, as most terminal apps do.
 const WHEEL_ROWS: i16 = 3;
@@ -73,6 +73,7 @@ pub(crate) fn begin_frame() {
     KeyMap::clear();
     MouseMap::clear();
     Focus::begin_frame();
+    Cursor::begin_frame();
 }
 
 // Tab moves focus forward; Shift+Tab moves it back. Terminals report the

@@ -17,7 +17,7 @@ starts, exits or crashes.
 |---|---|
 | **Raw mode** | Keys arrive one at a time as they're pressed, instead of a line at a time after Enter, and aren't echoed. Ctrl+C arrives as a key instead of stopping the program. |
 | **Alternate screen** | The app gets a separate, blank screen. When it exits, the shell's screen and scrollback come back exactly as they were. |
-| **Hidden cursor** | The cursor would otherwise flicker around the screen as cells are drawn. |
+| **Hidden cursor** | The cursor would otherwise flicker around the screen as cells are drawn. A widget can ask for it back; see [the text cursor](#the-text-cursor). |
 | **Size** | The terminal's width and height are read, and kept up to date as resize events arrive. |
 
 If a step fails partway through — for example because standard output is not a
@@ -54,6 +54,61 @@ output keep working.
 The hook only restores the terminal for a panic **on the thread that created
 it**. If a background thread panics — and your app catches that through the
 thread's join handle — the interface keeps running instead of vanishing.
+
+## The text cursor
+
+The terminal's own cursor — the blinking one it draws itself — is hidden while an
+app runs, because a cursor parked wherever the last cell was written is noise.
+
+A widget taking typed input wants it back. It should blink where the next
+character will land, and the terminal's own facilities — IME input for languages
+that need it, screen readers, "copy the word under the cursor" — all look at
+where the real cursor is, not at whatever a widget drew.
+
+A widget asks for it during its render, through
+[`Canvas::place_cursor`](crate::Canvas::place_cursor):
+
+```rust
+use auxior::{Canvas, Cell, LayoutOptions, Widget};
+
+struct Prompt {
+    layout: LayoutOptions,
+    typed: String,
+}
+
+impl Widget for Prompt {
+    fn render(&self, canvas: &mut Canvas) {
+        let columns = canvas.set_str(0, 0, &self.typed, Cell::empty());
+        canvas.place_cursor(columns, 0);
+    }
+
+    fn layout(&self) -> &LayoutOptions {
+        &self.layout
+    }
+
+    fn default_height(&self) -> u16 {
+        1
+    }
+}
+```
+
+The rules, which are the same shape as the input registries:
+
+- The request **lasts one frame**. A frame where nothing asks hides the cursor
+  again, so a field that loses focus doesn't leave it behind.
+- If two widgets ask in one frame, the **last one drawn wins**.
+- The move is written **after** the frame's cells, or printing them would drag
+  the cursor away again, and in the **same write**, so it never appears
+  mid-flight.
+- `Show` and `Hide` are only sent when the state actually changes, so a field
+  that keeps focus costs one short move per frame and nothing else.
+
+[`Input`](crate::Input) does this already, and keeps drawing its underline as
+well, for terminals configured never to show a cursor.
+
+A test reads the request back with
+[`TestTerminal::cursor`](crate::testing::TestTerminal::cursor), so where the
+caret lands is checkable without a terminal.
 
 ## Mouse capture
 

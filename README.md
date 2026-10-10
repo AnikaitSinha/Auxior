@@ -16,7 +16,7 @@ should show, and Auxior works out what to redraw.
   `align`, `Grid` for rows and columns together.
 - **Content** — `Text` with styles, wrapping, alignment and ellipsis,
   `Markdown` (CommonMark, including tables), `Button`, `Input` (text, password
-  and number fields), `Bar` and braille graphs.
+  and number fields), `Tabs`, `Toast`, `Spinner`, `Bar` and braille graphs.
 - **Pictures** — `Image` draws a picture or plays an animation as half blocks,
   braille or ASCII, re-sampled whenever the terminal changes size.
 - **Composites** — `List`, `Table`, `StatusBar` and `SparklineGraph`.
