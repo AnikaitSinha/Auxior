@@ -51,6 +51,14 @@ below describes 0.1.0 as it stands.
   tracing it as an edge. ASCII takes a custom ramp through `Image::ramp`.
   Playback follows the wall clock through `AnimationState`, so an animation keeps
   its own timing whatever rate the application draws at.
+- `PixelMode::Graphics`: real pictures, drawn by the terminal at full resolution
+  through the Kitty graphics protocol, in Kitty, WezTerm, Ghostty and Konsole.
+  Elsewhere, and inside tmux (which swallows the escape codes), it draws as
+  `HalfBlock`, so apps never need to check. `Graphics::cell_pixels` gives the
+  pixel size of a cell, for charts rendered at exactly the size they are shown.
+  Support is detected once at start-up, can be forced with
+  `AUXIOR_GRAPHICS=kitty` or `off`, and turned off with
+  `AppConfig::graphics(false)`.
 - `Div` borders in five line styles (`Rounded`, `Square`, `Double`, `Thick`,
   `Ascii`) or characters of your own, drawn on any set of edges, with an
   alignable title and footer.
@@ -92,6 +100,12 @@ below describes 0.1.0 as it stands.
   blinks where typing will land and IME and screen readers have somewhere to
   point. `InputState::focus_id` makes a field focusable from code.
 - The terminal is restored on exit and on panic, with the panic message readable.
+- Pictures are synced frame to frame like cells: pixels are sent once per
+  picture (identified by a hash of the pixels), placements only when new or
+  moved, and pixels nothing shows any more are freed. Everything is wiped on the
+  first frame, after a resize and on exit, including after a panic.
+  `TestTerminal::with_graphics` and `TestTerminal::placements` test where
+  pictures go.
 
 ### Fixed
 

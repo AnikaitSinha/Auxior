@@ -81,7 +81,7 @@ pub use core::testing;
 pub use composites::{List, SparklineGraph, StatusBar, StatusType, Table};
 pub use core::{
     App, AppConfig, AppEvent, Area, Buffer, Canvas, Cell, ControlFlow, Cursor, Focus, FocusId,
-    FrameStats, KeyBinding, RenderContext, Terminal,
+    FrameStats, Graphics, KeyBinding, RenderContext, Terminal,
 };
 pub use widgets::{
     Align, AlignItems, Animation, AnimationState, Bar, BorderAlign, BorderChars, BorderSide,

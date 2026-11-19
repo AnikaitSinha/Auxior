@@ -74,6 +74,9 @@ pub mod widgets {
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/image.md"))]
     pub mod image {}
 
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/graphics.md"))]
+    pub mod graphics {}
+
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/div.md"))]
     pub mod div {}
 

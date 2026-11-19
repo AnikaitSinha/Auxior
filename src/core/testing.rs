@@ -21,6 +21,7 @@
 //! The widget is given the whole screen. To check how a widget behaves at a particular size,
 //! put it inside a container that sizes it, or make the screen that size.
 
+use crate::core::graphics::{Graphics, Protocol};
 use crate::{AppEvent, Area, Buffer, Canvas, Cell, Cursor, RenderContext, Widget};
 
 /// A pretend screen that widgets can be drawn into and read back from.
@@ -34,6 +35,9 @@ pub struct TestTerminal {
     previous: Buffer,
     dirty: Vec<(u16, u16)>,
     cursor: Option<(u16, u16)>,
+    // The pixel size of a cell while drawing, when pretending to show pictures.
+    graphics: Option<(u16, u16)>,
+    placements: Vec<(Area, u32)>,
 }
 
 impl TestTerminal {
@@ -44,7 +48,39 @@ impl TestTerminal {
             previous: Buffer::new(width, height),
             dirty: Vec::new(),
             cursor: None,
+            graphics: None,
+            placements: Vec::new(),
         }
+    }
+
+    /// Pretends to be a terminal that shows pictures, with cells `cell_pixels` wide and tall,
+    /// so [`placements`](TestTerminal::placements) reports where images in
+    /// [`PixelMode::Graphics`](crate::PixelMode::Graphics) go. Without it, those images draw
+    /// as characters, as they would on a terminal that cannot show pictures.
+    ///
+    /// ```
+    /// use auxior::{Area, Image, Picture, PixelMode};
+    /// use auxior::testing::TestTerminal;
+    ///
+    /// let picture = Picture::from_fn(40, 40, |_, _| (255, 0, 0)).unwrap();
+    /// let mut term = TestTerminal::new(20, 5).with_graphics((10, 20));
+    /// term.draw(&Image::picture(&picture).mode(PixelMode::Graphics));
+    ///
+    /// // Cells are twice as tall as they are wide, so a square picture five rows tall is ten
+    /// // columns wide, centred.
+    /// let (area, _id) = term.placements()[0];
+    /// assert_eq!(area, Area::new(5, 0, 10, 5));
+    /// ```
+    pub fn with_graphics(mut self, cell_pixels: (u16, u16)) -> Self {
+        self.graphics = Some(cell_pixels);
+        self
+    }
+
+    /// Where the last frame put each picture, in screen coordinates, with the id of its
+    /// pixels. Pictures with the same pixels share an id. Empty unless the terminal was made
+    /// [`with_graphics`](TestTerminal::with_graphics).
+    pub fn placements(&self) -> Vec<(Area, u32)> {
+        self.placements.clone()
     }
 
     /// Draws `widget` over the whole screen as one frame.
@@ -83,14 +119,24 @@ impl TestTerminal {
         // a cursor request all belong to this frame only.
         crate::core::begin_frame();
 
+        // Pretend, for this frame only, that the terminal shows pictures, or that it does not.
+        let saved = (Graphics::protocol(), Graphics::cell_pixels());
+        Graphics::set_protocol(self.graphics.map(|_| Protocol::Kitty));
+        Graphics::set_cell_pixels(self.graphics);
+
         let area = Area::new_from_buffer(&self.current);
         let mut ctx = RenderContext::new(&self.previous);
         {
             let mut canvas = Canvas::new(&mut self.current, area);
             draw(&mut canvas, &mut ctx);
         }
+
+        Graphics::set_protocol(saved.0);
+        Graphics::set_cell_pixels(saved.1);
+
         self.dirty = ctx.diff_coords(&self.current);
         self.cursor = Cursor::requested();
+        self.placements = Graphics::peek().iter().map(|p| (p.area, p.id)).collect();
     }
 
     /// Sends `events` to the widgets of the frame last drawn, as a running app does before it
@@ -123,7 +169,9 @@ impl TestTerminal {
 
     /// Resizes the screen, blanking it and the previous frame.
     pub fn resize(&mut self, width: u16, height: u16) {
+        let graphics = self.graphics;
         *self = Self::new(width, height);
+        self.graphics = graphics;
     }
 
     /// The screen's width in columns.

@@ -1,4 +1,4 @@
-use std::cell::Cell as StdCell;
+use std::cell::{Cell as StdCell, RefCell};
 use std::io::{self, BufWriter, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, Once, TryLockError};
@@ -14,7 +14,8 @@ use crossterm::{
     },
 };
 
-use crate::{Buffer, Cell};
+use crate::core::graphics::{self, GraphicsSync, Placement, write_delete_all};
+use crate::{Buffer, Cell, Graphics};
 
 // Writes the sequence for one attribute, but only when the terminal is not known to be in that
 // state already.
@@ -270,6 +271,13 @@ fn restore_terminal() -> io::Result<()> {
     }
 
     let mut stdout = io::stdout();
+    // No picture is left on screen after quitting, including after a panic.
+    if Graphics::protocol().is_some() {
+        let _ = write_delete_all(&mut stdout);
+        let _ = stdout.flush();
+        Graphics::set_protocol(None);
+        Graphics::set_cell_pixels(None);
+    }
     if MOUSE_CAPTURED.swap(false, Ordering::SeqCst) {
         let _ = execute!(stdout, DisableMouseCapture);
     }
@@ -291,6 +299,8 @@ pub struct Terminal {
     initialized: bool,
     // Whether the terminal's own cursor is currently shown. It starts hidden, by `init`.
     cursor_shown: StdCell<bool>,
+    // What pictures the terminal is showing, for terminals that show them.
+    graphics: RefCell<GraphicsSync>,
 }
 
 impl Terminal {
@@ -321,11 +331,16 @@ impl Terminal {
             }
         };
 
+        // Decided once: whether the terminal shows pictures, and how big a cell is.
+        Graphics::set_protocol(graphics::detect_from_env());
+        Graphics::refresh_cell_pixels();
+
         Ok(Self {
             width,
             height,
             initialized: true,
             cursor_shown: StdCell::new(false),
+            graphics: RefCell::new(GraphicsSync::new()),
         })
     }
 
@@ -356,9 +371,24 @@ impl Terminal {
         execute!(io::stdout(), EnableMouseCapture)
     }
 
+    /// Turns pictures off, for terminals that claim to show them but get it wrong. Images in
+    /// [`PixelMode::Graphics`](crate::PixelMode::Graphics) then draw as characters.
+    pub fn disable_graphics(&mut self) {
+        if Graphics::supported() {
+            let mut stdout = io::stdout();
+            let _ = write_delete_all(&mut stdout);
+            let _ = stdout.flush();
+        }
+        Graphics::set_protocol(None);
+    }
+
     pub(crate) fn set_size(&mut self, width: u16, height: u16) {
         self.width = width;
         self.height = height;
+        // A resize can change the font size, and the terminal may have moved or dropped the
+        // pictures, so they are wiped and sent again.
+        Graphics::refresh_cell_pixels();
+        self.graphics.borrow_mut().invalidate();
     }
 
     /// Draws one frame outside the [`App`](crate::App) event loop: `f` fills a fresh buffer the
@@ -372,14 +402,31 @@ impl Terminal {
         F: FnOnce(&mut Buffer),
     {
         let mut buffer = Buffer::new(self.width, self.height);
+        Graphics::begin_frame();
         f(&mut buffer);
-        self.flush(&buffer)
+        self.flush(&buffer, &Graphics::take())
     }
 
-    fn flush(&self, buffer: &Buffer) -> io::Result<()> {
+    fn flush(&self, buffer: &Buffer, placements: &[Placement]) -> io::Result<()> {
         let stdout = io::stdout().lock();
         let mut writer = BufWriter::with_capacity(FLUSH_BUFFER_CAPACITY, stdout);
-        Self::flush_to(buffer, self.width, &mut writer)
+        Self::flush_to(buffer, self.width, &mut writer)?;
+        self.sync_graphics(&mut writer, placements)?;
+        writer.flush()
+    }
+
+    // Sends the pictures that changed, on terminals that show pictures. Elsewhere nothing is
+    // written at all.
+    fn sync_graphics<W: Write>(&self, writer: &mut W, placements: &[Placement]) -> io::Result<()> {
+        if Graphics::protocol().is_none() {
+            return Ok(());
+        }
+        self.graphics.borrow_mut().sync(writer, placements)
+    }
+
+    /// Where each picture went in the last frame sent, and the id of its pixels.
+    pub fn placements(&self) -> Vec<(crate::Area, u32)> {
+        self.graphics.borrow().placed()
     }
 
     // Deprecated
@@ -403,7 +450,19 @@ impl Terminal {
         cursor: CursorOut,
         writer: &mut W,
     ) -> io::Result<()> {
-        if coords.is_empty() {
+        Self::flush_frame_to(buffer, coords, wrap_width, cursor, None, writer)
+    }
+
+    // The cells, then the pictures over them, then the cursor, in one write.
+    fn flush_frame_to<W: Write>(
+        buffer: &Buffer,
+        coords: &[(u16, u16)],
+        wrap_width: u16,
+        cursor: CursorOut,
+        graphics: Option<(&mut GraphicsSync, &[Placement])>,
+        writer: &mut W,
+    ) -> io::Result<()> {
+        if coords.is_empty() && graphics.is_none() {
             // The cursor still moves even when no cell changed: focus can leave a field
             // without changing anything on screen.
             write_cursor(writer, cursor)?;
@@ -432,6 +491,11 @@ impl Terminal {
             state.write_buffer_cell(writer, buffer, x, y, wrap_width)?;
         }
 
+        // After the cells, so blanking the area under a picture cannot draw over it.
+        if let Some((sync, placements)) = graphics {
+            sync.sync(writer, placements)?;
+        }
+
         // Last, so the cell writes do not drag the cursor away from it again.
         write_cursor(writer, cursor)?;
 
@@ -444,11 +508,23 @@ impl Terminal {
         buffer: &Buffer,
         coords: &[(u16, u16)],
         cursor: Option<(u16, u16)>,
+        placements: &[Placement],
     ) -> io::Result<()> {
         let out = self.resolve_cursor(cursor);
         let stdout = io::stdout().lock();
         let mut writer = BufWriter::with_capacity(FLUSH_BUFFER_CAPACITY, stdout);
-        Self::flush_cells_to(buffer, coords, self.width, out, &mut writer)
+        if Graphics::protocol().is_none() {
+            return Self::flush_cells_to(buffer, coords, self.width, out, &mut writer);
+        }
+        let mut sync = self.graphics.borrow_mut();
+        Self::flush_frame_to(
+            buffer,
+            coords,
+            self.width,
+            out,
+            Some((&mut sync, placements)),
+            &mut writer,
+        )
     }
 
     // Works out what to send for the cursor, and remembers whether it ends up shown, so a
@@ -479,6 +555,7 @@ impl Terminal {
             height,
             initialized: false,
             cursor_shown: StdCell::new(false),
+            graphics: RefCell::new(GraphicsSync::new()),
         }
     }
 
@@ -1096,6 +1173,87 @@ mod tests {
         assert!(output.contains(" b"), "{output:?}");
         assert!(!output.contains('\u{0301}'));
         assert_eq!(move_to_count(&output), 1);
+    }
+
+    fn red_placement(area: crate::Area) -> Placement {
+        let picture = crate::Picture::from_fn(4, 4, |_, _| (255, 0, 0)).unwrap();
+        Placement {
+            area,
+            id: picture.graphics_id(),
+            picture,
+            crop: None,
+        }
+    }
+
+    #[test]
+    fn pictures_go_after_the_cells_and_before_the_cursor() {
+        let mut buf = Buffer::new(4, 1);
+        buf.set(0, 0, Cell::new('a'));
+        let mut sync = GraphicsSync::new();
+        let frame = [red_placement(crate::Area::new(1, 0, 2, 1))];
+        let cursor = CursorOut::Place {
+            x: 3,
+            y: 0,
+            show: false,
+        };
+
+        let mut out = Vec::new();
+        Terminal::flush_frame_to(
+            &buf,
+            &[(0, 0)],
+            buf.width,
+            cursor,
+            Some((&mut sync, &frame)),
+            &mut out,
+        )
+        .unwrap();
+        let output = String::from_utf8_lossy(&out);
+
+        let cell = output.find('a').unwrap();
+        let place = output.find("\x1b_Ga=p").unwrap();
+        let moved = output.rfind("\x1b[1;4H").unwrap();
+        assert!(cell < place && place < moved, "{output:?}");
+    }
+
+    #[test]
+    fn an_unchanged_frame_sends_nothing_for_its_pictures() {
+        let buf = Buffer::new(4, 1);
+        let mut sync = GraphicsSync::new();
+        let frame = [red_placement(crate::Area::new(0, 0, 2, 1))];
+
+        let mut first = Vec::new();
+        let mut second = Vec::new();
+        for out in [&mut first, &mut second] {
+            Terminal::flush_frame_to(
+                &buf,
+                &[],
+                buf.width,
+                CursorOut::Leave,
+                Some((&mut sync, &frame)),
+                out,
+            )
+            .unwrap();
+        }
+        assert!(!first.is_empty());
+        assert!(second.is_empty(), "{:?}", String::from_utf8_lossy(&second));
+    }
+
+    #[test]
+    fn a_resize_wipes_the_pictures_and_sends_them_again() {
+        let mut term = Terminal::new_with_size(10, 4);
+        let frame = [red_placement(crate::Area::new(0, 0, 2, 1))];
+        let mut out = Vec::new();
+        term.graphics.borrow_mut().sync(&mut out, &frame).unwrap();
+        out.clear();
+        term.graphics.borrow_mut().sync(&mut out, &frame).unwrap();
+        assert!(out.is_empty());
+
+        term.set_size(12, 5);
+        term.graphics.borrow_mut().sync(&mut out, &frame).unwrap();
+        let output = String::from_utf8_lossy(&out);
+        assert!(output.starts_with("\x1b_Ga=d,d=A,q=2\x1b\\"), "{output:?}");
+        assert!(output.contains("a=t,") && output.contains("a=p,"));
+        assert_eq!(term.placements(), vec![(frame[0].area, frame[0].id)]);
     }
 
     #[test]

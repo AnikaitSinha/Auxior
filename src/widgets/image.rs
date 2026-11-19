@@ -1,11 +1,12 @@
 use crate::widgets::layout_builders;
-use std::cell::Cell as StdCell;
+use std::cell::{Cell as StdCell, OnceCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use crossterm::style::Color;
 
-use crate::{Canvas, Cell, LayoutOptions, Widget};
+use crate::core::graphics::picture_id;
+use crate::{Area, Canvas, Cell, Graphics, LayoutOptions, Widget};
 
 // Braille dots, top row first, left column first in each row.
 const BRAILLE_DOTS: [[u8; 2]; 4] = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]];
@@ -60,6 +61,8 @@ struct Pixels {
     height: u16,
     // Red, green and blue per pixel, row by row.
     rgb: Vec<u8>,
+    // Worked out the first time the picture is sent to a terminal that shows pictures.
+    id: OnceCell<u32>,
 }
 
 impl Picture {
@@ -73,7 +76,12 @@ impl Picture {
         }
 
         Some(Self {
-            inner: Rc::new(Pixels { width, height, rgb }),
+            inner: Rc::new(Pixels {
+                width,
+                height,
+                rgb,
+                id: OnceCell::new(),
+            }),
         })
     }
 
@@ -96,6 +104,20 @@ impl Picture {
     /// Width and height in pixels.
     pub fn size(&self) -> (u16, u16) {
         (self.inner.width, self.inner.height)
+    }
+
+    // Red, green and blue per pixel, row by row.
+    pub(crate) fn rgb_bytes(&self) -> &[u8] {
+        &self.inner.rgb
+    }
+
+    // Names the pixels to a terminal that shows pictures: the same pixels always get the same
+    // id, so they are sent once. Worked out once per picture and kept.
+    pub(crate) fn graphics_id(&self) -> u32 {
+        *self
+            .inner
+            .id
+            .get_or_init(|| picture_id(self.inner.width, self.inner.height, &self.inner.rgb))
     }
 
     /// The pixel at `(x, y)`, clamped to the edges.
@@ -380,13 +402,18 @@ pub enum PixelMode {
     /// One character per cell, chosen by brightness, in one colour. The
     /// classic ASCII-art look.
     Ascii,
+    /// The picture itself, drawn by the terminal at full resolution, on terminals that speak
+    /// the Kitty graphics protocol (Kitty, WezTerm, Ghostty, Konsole). Everywhere else, and
+    /// inside tmux, it quietly draws as [`HalfBlock`](PixelMode::HalfBlock), so there is no
+    /// need to check first. See [`Graphics`](crate::Graphics).
+    Graphics,
 }
 
 impl PixelMode {
     // How many sample points one cell needs, across and down.
     fn cell_samples(self) -> (u16, u16) {
         match self {
-            PixelMode::HalfBlock => (1, 2),
+            PixelMode::HalfBlock | PixelMode::Graphics => (1, 2),
             PixelMode::Braille => (2, 4),
             PixelMode::Ascii => (1, 1),
         }
@@ -715,12 +742,76 @@ fn brightness(colour: (u8, u8, u8)) -> f32 {
     0.2126 * f32::from(colour.0) + 0.7152 * f32::from(colour.1) + 0.0722 * f32::from(colour.2)
 }
 
+// The cells a picture fills on a terminal that shows pictures, and the part of the picture
+// shown, for each fit. Cells are `cell_px` pixels across and down.
+fn graphics_plan(
+    fit: Fit,
+    area: Area,
+    cell_px: (u16, u16),
+    picture: (u16, u16),
+) -> (Area, Option<(u16, u16, u16, u16)>) {
+    let (width, height) = (f32::from(picture.0), f32::from(picture.1));
+    let box_width = f32::from(area.width) * f32::from(cell_px.0.max(1));
+    let box_height = f32::from(area.height) * f32::from(cell_px.1.max(1));
+    let shape = width / height;
+    let box_shape = box_width / box_height;
+
+    match fit {
+        Fit::Stretch => (area, None),
+        Fit::Contain => {
+            let (columns, rows) = if shape > box_shape {
+                let rows = (box_width / shape / f32::from(cell_px.1.max(1))).round() as u16;
+                (area.width, rows.clamp(1, area.height))
+            } else {
+                let columns = (box_height * shape / f32::from(cell_px.0.max(1))).round() as u16;
+                (columns.clamp(1, area.width), area.height)
+            };
+            let fitted = Area::new(
+                area.x + (area.width - columns) / 2,
+                area.y + (area.height - rows) / 2,
+                columns,
+                rows,
+            );
+            (fitted, None)
+        }
+        Fit::Cover => {
+            let crop = if shape > box_shape {
+                // Wider than the space: keep the height, trim the sides.
+                let keep = ((height * box_shape).round() as u16).clamp(1, picture.0);
+                ((picture.0 - keep) / 2, 0, keep, picture.1)
+            } else {
+                let keep = ((width / box_shape).round() as u16).clamp(1, picture.1);
+                (0, (picture.1 - keep) / 2, picture.0, keep)
+            };
+            let whole = crop == (0, 0, picture.0, picture.1);
+            (area, (!whole).then_some(crop))
+        }
+    }
+}
+
 impl Widget for Image {
     fn render(&self, canvas: &mut Canvas) {
         let (columns, rows) = (canvas.width(), canvas.height());
         let Some(picture) = self.current() else {
             return;
         };
+
+        if self.mode == PixelMode::Graphics && Graphics::supported() && columns > 0 && rows > 0 {
+            // Blank cells under the picture, so the cell diff sees a steady area and nothing
+            // drawn there before shows through.
+            for row in 0..rows {
+                for column in 0..columns {
+                    canvas.set(column, row, Cell::empty());
+                }
+            }
+            // Without a known cell size, a cell is taken to be twice as tall as it is wide.
+            let cell_px = Graphics::cell_pixels().unwrap_or((1, 2));
+            let (area, crop) =
+                graphics_plan(self.fit, canvas.global_area(), cell_px, picture.size());
+            Graphics::place_cropped(area, &picture, crop);
+            return;
+        }
+
         let per_cell @ (per_column, per_row) = self.mode.cell_samples();
         let Some(plan) = plan(
             self.fit,
@@ -765,7 +856,7 @@ impl Widget for Image {
                 };
 
                 let cell = match self.mode {
-                    PixelMode::HalfBlock => {
+                    PixelMode::HalfBlock | PixelMode::Graphics => {
                         let (top, bottom) = (at(0, 0), at(0, 1));
                         let mut cell = if top == bottom {
                             // Flat cells are common in drawn pictures, and a
@@ -1620,5 +1711,110 @@ mod tests {
         let mut buffer = Buffer::new(0, 0);
         let area = Area::new(0, 0, 0, 0);
         Image::picture(&solid(2, 2, (0, 0, 0))).render(&mut Canvas::new(&mut buffer, area));
+    }
+
+    // Pictures shown by the terminal itself.
+
+    fn gradient(width: u16, height: u16) -> Picture {
+        Picture::from_fn(width, height, |x, y| ((x * 7) as u8, (y * 5) as u8, 90)).unwrap()
+    }
+
+    #[test]
+    fn graphics_draws_as_half_blocks_where_pictures_cannot_be_shown() {
+        use crate::testing::TestTerminal;
+
+        let picture = gradient(23, 17);
+        for fit in [Fit::Contain, Fit::Cover, Fit::Stretch] {
+            let mut graphics = TestTerminal::new(12, 6);
+            graphics.draw(&Image::picture(&picture).mode(PixelMode::Graphics).fit(fit));
+            let mut half = TestTerminal::new(12, 6);
+            half.draw(&Image::picture(&picture).mode(PixelMode::HalfBlock).fit(fit));
+
+            assert_eq!(graphics.buffer(), half.buffer(), "{fit:?}");
+            assert!(graphics.placements().is_empty());
+        }
+    }
+
+    #[test]
+    fn graphics_blanks_its_area_and_places_the_picture() {
+        use crate::Div;
+        use crate::testing::TestTerminal;
+
+        let picture = gradient(40, 40);
+        let mut term = TestTerminal::new(10, 4).with_graphics((8, 16));
+        term.draw(
+            &Div::new().child(
+                Image::picture(&picture)
+                    .mode(PixelMode::Graphics)
+                    .fit(Fit::Stretch)
+                    .x(2)
+                    .y(1)
+                    .width(6)
+                    .height(2),
+            ),
+        );
+
+        assert_eq!(
+            term.placements(),
+            vec![(Area::new(2, 1, 6, 2), picture.graphics_id())]
+        );
+        for y in 0..4 {
+            for x in 0..10 {
+                assert_eq!(term.cell(x, y), Some(&Cell::empty()), "({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn graphics_contain_keeps_the_shape() {
+        // 10 × 20 pixel cells: a 100-pixel-square box is ten columns by five rows.
+        let area = Area::new(0, 0, 20, 5);
+        let (fitted, crop) = graphics_plan(Fit::Contain, area, (10, 20), (50, 50));
+        assert_eq!(fitted, Area::new(5, 0, 10, 5));
+        assert_eq!(crop, None);
+
+        let (wide, _) = graphics_plan(Fit::Contain, area, (10, 20), (250, 50));
+        assert_eq!(wide, Area::new(0, 1, 20, 2));
+    }
+
+    #[test]
+    fn graphics_cover_crops_from_the_middle() {
+        let area = Area::new(3, 2, 20, 5);
+        let (fitted, crop) = graphics_plan(Fit::Cover, area, (10, 20), (100, 100));
+        assert_eq!(fitted, area);
+        // The box is twice as wide as tall, so half the height is kept, from the middle.
+        assert_eq!(crop, Some((0, 25, 100, 50)));
+
+        let (_, exact) = graphics_plan(Fit::Cover, area, (10, 20), (200, 100));
+        assert_eq!(exact, None);
+    }
+
+    #[test]
+    fn graphics_stretch_fills_the_area() {
+        let area = Area::new(1, 1, 7, 3);
+        assert_eq!(
+            graphics_plan(Fit::Stretch, area, (10, 20), (5, 900)),
+            (area, None)
+        );
+    }
+
+    #[test]
+    fn graphics_never_leaves_the_area() {
+        for (columns, rows) in [(1, 1), (1, 9), (9, 1), (13, 7)] {
+            for picture in [(1, 1), (1, 500), (500, 1), (37, 23)] {
+                for fit in [Fit::Contain, Fit::Cover, Fit::Stretch] {
+                    let area = Area::new(4, 4, columns, rows);
+                    let (fitted, crop) = graphics_plan(fit, area, (9, 19), picture);
+                    assert!(fitted.width >= 1 && fitted.height >= 1);
+                    assert!(fitted.x >= area.x && fitted.y >= area.y);
+                    assert!(fitted.x + fitted.width <= area.x + area.width);
+                    assert!(fitted.y + fitted.height <= area.y + area.height);
+                    if let Some((x, y, w, h)) = crop {
+                        assert!(w >= 1 && h >= 1);
+                        assert!(x + w <= picture.0 && y + h <= picture.1);
+                    }
+                }
+            }
+        }
     }
 }

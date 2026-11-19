@@ -221,6 +221,7 @@ image file at all.
 
 ## See also
 
+- [Graphics](graphics.md), for real pictures on terminals that can show them
 - [Layout](../concepts/layout.md), for how sizes are decided
 - [The frame loop](../engine/frame-loop.md), for how often drawing happens
 - [ScrollGraph](scroll-graph.md), which draws with braille in the same way

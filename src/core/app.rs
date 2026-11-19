@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 
 use super::{
-    Buffer, Cursor, FrameStats, KeyBinding, RenderContext, Terminal, begin_frame, dispatch_events,
+    Buffer, Cursor, FrameStats, Graphics, KeyBinding, RenderContext, Terminal, begin_frame,
+    dispatch_events,
 };
 
 /// Options for an [`App`]: frame rate, quit keys and mouse capture.
@@ -34,6 +35,9 @@ pub struct AppConfig {
     /// Whether only the areas widgets marked as redrawn are compared with the
     /// previous frame. See [`AppConfig::incremental()`].
     pub incremental: bool,
+    /// Whether [`PixelMode::Graphics`](crate::PixelMode::Graphics) may show real pictures on
+    /// terminals that can. See [`AppConfig::graphics()`].
+    pub graphics: bool,
 }
 
 impl Default for AppConfig {
@@ -43,6 +47,7 @@ impl Default for AppConfig {
             quit_keys: Vec::new(),
             mouse_capture: false,
             incremental: false,
+            graphics: true,
         }
     }
 }
@@ -111,6 +116,18 @@ impl AppConfig {
         self.incremental = on;
         self
     }
+    /// Lets images in [`PixelMode::Graphics`](crate::PixelMode::Graphics) show as real
+    /// pictures on terminals that can (Kitty, WezTerm, Ghostty, Konsole, outside tmux).
+    ///
+    /// On by default. Turned off, those images draw as
+    /// [`HalfBlock`](crate::PixelMode::HalfBlock) everywhere. Setting the environment variable
+    /// `AUXIOR_GRAPHICS` to `kitty` or `off` overrides detection for users whose terminal is
+    /// guessed wrong.
+    pub fn graphics(mut self, on: bool) -> Self {
+        self.graphics = on;
+        self
+    }
+
     /// Adds the common pair of quit keys, `q` and `Esc`.
     pub fn default_quit_keys(self) -> Self {
         self.quit_key(KeyCode::Char('q')).quit_key(KeyCode::Esc)
@@ -203,6 +220,9 @@ impl App {
         let mut terminal = Terminal::new()?;
         if config.mouse_capture {
             terminal.enable_mouse_capture()?;
+        }
+        if !config.graphics {
+            terminal.disable_graphics();
         }
         let (w, h) = terminal.size();
         let previous = Buffer::new(w, h);
@@ -333,8 +353,12 @@ impl App {
             };
 
             // Asked for during the render just done, and cleared again next `begin_frame`.
-            self.terminal
-                .flush_cells(&self.current, &coords, Cursor::requested())?;
+            self.terminal.flush_cells(
+                &self.current,
+                &coords,
+                Cursor::requested(),
+                &Graphics::take(),
+            )?;
 
             // Built after flushing, so the coordinates move in instead of being
             // copied every frame.
@@ -500,6 +524,12 @@ mod tests {
         ));
 
         assert!(!config.is_quit_key(&release));
+    }
+
+    #[test]
+    fn graphics_are_on_by_default() {
+        assert!(AppConfig::default().graphics);
+        assert!(!AppConfig::new().graphics(false).graphics);
     }
 
     #[test]
