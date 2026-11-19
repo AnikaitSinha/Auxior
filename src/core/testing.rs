@@ -21,7 +21,7 @@
 //! The widget is given the whole screen. To check how a widget behaves at a particular size,
 //! put it inside a container that sizes it, or make the screen that size.
 
-use crate::{Area, Buffer, Canvas, Cell, Cursor, RenderContext, Widget};
+use crate::{AppEvent, Area, Buffer, Canvas, Cell, Cursor, RenderContext, Widget};
 
 /// A pretend screen that widgets can be drawn into and read back from.
 ///
@@ -79,8 +79,9 @@ impl TestTerminal {
     pub fn draw_with(&mut self, draw: impl FnOnce(&mut Canvas, &mut RenderContext)) {
         self.previous.copy_buffer_from(&self.current);
         self.current.fill(Cell::empty());
-        // As a frame of a running app does, so a request belongs to this frame only.
-        Cursor::begin_frame();
+        // As a frame of a running app does, so key bindings, click regions, the focus order and
+        // a cursor request all belong to this frame only.
+        crate::core::begin_frame();
 
         let area = Area::new_from_buffer(&self.current);
         let mut ctx = RenderContext::new(&self.previous);
@@ -90,6 +91,34 @@ impl TestTerminal {
         }
         self.dirty = ctx.diff_coords(&self.current);
         self.cursor = Cursor::requested();
+    }
+
+    /// Sends `events` to the widgets of the frame last drawn, as a running app does before it
+    /// draws the next one, and returns whether a widget used each of them.
+    ///
+    /// Keys go to the focused widget, then to widgets' key bindings; clicks and the wheel go to
+    /// whatever was drawn where they land. Draw again afterwards to see what they changed.
+    ///
+    /// ```
+    /// use auxior::{AppEvent, Focus, Input, InputState, KeyCode, KeyEvent, KeyModifiers};
+    /// use auxior::testing::TestTerminal;
+    ///
+    /// let key = |ch| AppEvent::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    ///
+    /// let name = InputState::new();
+    /// Focus::set(name.focus_id());
+    ///
+    /// let mut term = TestTerminal::new(8, 1);
+    /// term.draw(&Input::text(&name));
+    ///
+    /// // The focused field types both keys, so neither would reach an app's own shortcuts.
+    /// assert_eq!(term.send(&[key('h'), key('i')]), [true, true]);
+    ///
+    /// term.draw(&Input::text(&name));
+    /// assert_eq!(term.row(0), "hi      ");
+    /// ```
+    pub fn send(&mut self, events: &[AppEvent]) -> Vec<bool> {
+        crate::core::dispatch_input(events)
     }
 
     /// Resizes the screen, blanking it and the previous frame.

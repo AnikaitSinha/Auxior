@@ -20,6 +20,8 @@ assert_eq!(buf.get(0, 1).unwrap().fg, Color::Cyan);
 | Method | Default | Effect |
 |---|---|---|
 | [`new(content)`](crate::Text::new) | | The text. Each `\n` starts a new row. |
+| [`spans(spans)`](crate::Text::spans) | | Text made of [`Span`](crate::Span)s, each styled on its own. |
+| [`span(span)`](crate::Text::span) | | Adds a span, or a plain string, to the end. |
 | [`fg(color)`](crate::Text::fg) | the terminal's color | Text color. |
 | [`bold`](crate::Text::bold), [`italic`](crate::Text::italic), [`underline`](crate::Text::underline) | off | Attributes. |
 | [`reverse`](crate::Text::reverse), [`dim`](crate::Text::dim), [`strikethrough`](crate::Text::strikethrough) | off | More attributes; see [cells](../engine/cells-and-buffers.md#cells). |
@@ -28,23 +30,45 @@ assert_eq!(buf.get(0, 1).unwrap().fg, Color::Cyan);
 | [`ellipsis(on)`](crate::Text::ellipsis) | off | End text that does not fit with `…` instead of just stopping. |
 | `width`, `height`, `flex`, `x`, `y`, `margin`, `min_*`, `max_*`, `*_percent` | | Layout; see [layout](../concepts/layout.md). |
 
-A `Text` has one style for all of its characters. For mixed styles, place several
-`Text` widgets side by side in a [`Flex`](crate::Flex) row, or use
-[`Markdown`](crate::Markdown):
+## Mixed styles
+
+[`Text::spans`](crate::Text::spans) builds one text from [`Span`](crate::Span)s,
+each with a style of its own — a key hint with the key picked out, a status with a
+colored dot:
 
 ```rust
-use auxior::{Area, Buffer, Canvas, Color, Flex, Text};
+use auxior::{Color, Span, Text};
+use auxior::testing::TestTerminal;
 
-let mut buf = Buffer::new(20, 1);
-let area = Area::new_from_buffer(&buf);
-Flex::row()
-    .child(Text::new("Status: "))
-    .child(Text::new("online").fg(Color::Green).bold(true).flex(1))
-    .render(&mut Canvas::new(&mut buf, area));
+let hint = Text::spans([
+    Span::new("enter").fg(Color::Cyan).bold(true),
+    Span::new(" sign in   "),
+    Span::new("esc").fg(Color::Cyan).bold(true),
+    Span::new(" back"),
+]);
 
-let online = buf.get(8, 0).unwrap();
-assert!(online.ch == 'o' && online.b);
+let mut term = TestTerminal::new(24, 1);
+term.draw(&hint);
+
+term.assert_text("enter sign in   esc back");
+assert!(term.cell(0, 0).unwrap().b);
+assert!(!term.cell(6, 0).unwrap().b);
 ```
+
+A plain string works as a span with no style of its own, and
+[`span`](crate::Text::span) adds one to the end of any text:
+`Text::new("press ").span(Span::new("q").bold(true)).span(" to quit")`.
+
+The spans are joined into one string, so mixed text **wraps, aligns, measures and
+is cut short exactly like the same words in one style** — a span can break across
+rows or hold line breaks of its own. A span's color replaces the text's own, and
+its attributes add to the text's, so a style set on the whole `Text` (with
+[`fg`](crate::Text::fg), [`bold`](crate::Text::bold) and the rest) is the default
+every span starts from. Where an ellipsis cuts text short, the `…` takes the style
+of the character it replaces.
+
+Spans work wherever a `Text` does, including a [`Div`](crate::Div)'s title and
+footer.
 
 ## Alignment
 

@@ -165,13 +165,38 @@ term.assert_row(0, "top");
 term.assert_row(1, "•");
 ```
 
+## Sending input
+
+Key bindings, focus and click regions are registered while a frame draws, and a
+running [`App`](crate::App) routes the next batch of input against them before
+drawing again. [`send`](crate::testing::TestTerminal::send) does that routing step
+on its own: draw a frame, send events to it, then draw again to see what they
+changed. It returns whether a widget used each event, as
+[`RenderContext::unhandled`](crate::RenderContext::unhandled) would report it.
+
+```rust
+use auxior::{AppEvent, Focus, Input, InputState, KeyCode, KeyEvent, KeyModifiers};
+use auxior::testing::TestTerminal;
+
+let key = |code| AppEvent::Key(KeyEvent::new(code, KeyModifiers::NONE));
+
+let name = InputState::new();
+let mut term = TestTerminal::new(10, 1);
+term.draw(&Input::text(&name));
+
+// Tab focuses the field, which then types the `q` itself.
+assert_eq!(term.send(&[key(KeyCode::Tab), key(KeyCode::Char('q'))]), [true, true]);
+
+term.draw(&Input::text(&name));
+term.assert_row(0, "q");
+# Focus::clear();
+```
+
 ## What this doesn't cover
 
-A `TestTerminal` draws frames; it doesn't run the input loop. Key bindings,
-focus and mouse regions are registered during a frame and routed by
-[`App`](crate::App) on the next one, so testing them means driving the loop
-rather than drawing a single frame. See
-[Keys, focus and the mouse](input-and-focus.md) for how that routing works.
+A `TestTerminal` doesn't run the frame loop itself: there are no quit keys, frame
+rate or resize events. See [Keys, focus and the mouse](input-and-focus.md) for how
+routing works in a running app.
 
 ## See also
 

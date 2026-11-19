@@ -69,12 +69,24 @@ A key goes through these checks, stopping at the first that applies:
    it is. A key it declines — Escape, say — carries on down this list.
 4. **The focused widget's bindings.** If some widget has focus and registered
    this key for itself, its handler runs.
-5. **Key bindings** registered from anywhere.
+5. **Quit keys.** A [quit key](app.md#quit-keys) that got this far ends the app,
+   and nothing after it in the batch is routed.
+6. **Key bindings** registered from anywhere.
 
-A key that matches nothing is still delivered to your frame callback in `events`,
-so your code can handle any key directly.
+A click goes to the topmost click area under the pointer, and a wheel turn to the
+topmost scroll area, as long as no resize came before it in the batch.
 
-Quit keys are checked even earlier, by the frame loop, before routing starts.
+### Which events were used
+
+Every event is still delivered to your frame callback in `events`, whether or not
+a widget used it, so your code can handle any key directly. To tell them apart,
+the [`RenderContext`](crate::RenderContext) the callback receives records which
+events a step above used: a key a field typed, Tab moving focus, a key a widget is
+bound to, a click or wheel turn that landed on something.
+[`unhandled(events)`](crate::RenderContext::unhandled) gives the rest, and
+[`is_handled(index)`](crate::RenderContext::is_handled) asks about one. Use them for
+an app's own shortcuts, so that typing `r` into a field doesn't also refresh the
+screen.
 
 ### Matching keys
 

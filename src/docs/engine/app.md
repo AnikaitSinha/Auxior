@@ -132,13 +132,13 @@ so live content keeps moving. Values below 1 are raised to 1.
 it impossible to write, say, a text editor. Either add quit keys, or end the app
 from your own code by returning `ControlFlow::Break`.
 
-A quit key is checked before anything else each frame. When one is pressed, `run`
-returns straight away: that frame isn't drawn, and no button or other handler sees
-the key.
-
-Because that check comes first, **a quit key can never be typed**. An app with an
-[`Input`](crate::Input) field should quit on something nobody types into a field,
-such as `Ctrl+C`, rather than on `q`.
+A quit key goes to the **focused widget first**. If that widget uses it — a
+focused [`Input`](crate::Input) typing the `q` — the app carries on and the field
+gets its letter. Otherwise `run` returns straight away: that frame isn't drawn,
+nothing later in the batch is routed, and no app-wide binding, such as a
+[`Button`](crate::Button)'s key, sees the quit key. So `q` and `Esc` work as quit
+keys even in an app with text fields: `q` types into a focused field, and `Esc`,
+which a field doesn't use, still quits.
 
 Keys are [`KeyBinding`](crate::KeyBinding)s, but anything that converts into one is
 accepted: `'q'`, `KeyCode::Esc`, or `KeyBinding::ctrl(KeyCode::Char('c'))`. See
@@ -334,11 +334,11 @@ For anyone changing Auxior itself, here is how the file is laid out:
 
 | Item | Role |
 |---|---|
-| `AppConfig` | The options, their builder methods, and `is_quit_key`, which checks an event against the quit keys. |
+| `AppConfig` | The options and their builder methods. |
 | `AppEvent`, `ControlFlow` | The types your closure receives and returns. |
 | `App` | Fields: `terminal`, `config`, `previous` and `current` (the two buffers), `first_frame` (the next frame must send every cell), and `frame_stats`. |
 | `App::with_config` | Creates the terminal, turns on mouse capture, allocates the buffers. |
-| `App::run` | The frame loop: waits for the frame to be due, checks quit keys, routes input, handles resizes, prepares the buffer, calls your closure, sends the changed cells, records statistics, and swaps the buffers. |
+| `App::run` | The frame loop: waits for the frame to be due, routes input (which reports a quit key no focused widget took, and which events widgets used), handles resizes, prepares the buffer, calls your closure, sends the changed cells, records statistics, and swaps the buffers. |
 | `App::poll_timeout` | How long to wait for input before the next frame is due. |
 | `App::drain_events` | Reads every event the terminal has queued, turning keys, mouse events and resizes into `AppEvent`s. |
 

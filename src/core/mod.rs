@@ -18,7 +18,7 @@ pub use canvas::{Area, Canvas};
 pub use cell::Cell;
 pub use cursor::Cursor;
 pub use focus::{Focus, FocusId};
-pub(crate) use input::{begin_frame, dispatch_input};
+pub(crate) use input::{begin_frame, dispatch_events, dispatch_input};
 pub use keymap::KeyBinding;
 pub(crate) use keymap::KeyMap;
 pub(crate) use mouse::MouseMap;

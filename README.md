@@ -11,18 +11,23 @@ should show, and Auxior works out what to redraw.
 
 - **Layout** — margins, percentage sizes and min/max limits on any widget;
   `Div` for boxes that stack their children, with borders in
-  several line styles on any set of edges and an alignable title and footer,
-  `Flex` for rows and columns that share space, with CSS-style `justify` and
-  `align`, `Grid` for rows and columns together.
-- **Content** — `Text` with styles, wrapping, alignment and ellipsis,
-  `Markdown` (CommonMark, including tables), `Button`, `Input` (text, password
-  and number fields), `Tabs`, `Toast`, `Spinner`, `Bar` and braille graphs.
+  several line styles and colours on any set of edges, lighting up while focus is
+  inside, and an alignable title and footer, `Flex` for rows and columns that
+  share space, with CSS-style `justify` and `align`, `Grid` for rows and columns
+  together, and `Overlay` for dialogs and toasts drawn over the screen, modal if
+  they need answering.
+- **Content** — `Text` with styles (mixed within one text through `Span`s),
+  wrapping, alignment and ellipsis, `Markdown` (CommonMark, including tables),
+  `Button`, `Input` (text, password and number fields), `Tabs`, `Toast`,
+  `Spinner`, `Bar`, braille graphs, and `LineChart` for several lines with
+  reference lines and shading.
 - **Pictures** — `Image` draws a picture or plays an animation as half blocks,
   braille or ASCII, re-sampled whenever the terminal changes size.
 - **Composites** — `List`, `Table`, `StatusBar` and `SparklineGraph`.
 - **Scrolling** — `ScrollView` with keyboard, wheel and scroll-into-view.
 - **Input** — key bindings with modifiers, Tab focus traversal, mouse clicks and
-  wheel.
+  wheel, and a record of which events a widget used, so an app's own shortcuts
+  don't fire on keys typed into a field.
 - **Unicode** — wide characters such as CJK and emoji are measured and drawn by
   display width, in layout, wrapping and the renderer.
 - **Efficient drawing** — only changed cells are sent, in a single write per

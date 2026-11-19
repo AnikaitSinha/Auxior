@@ -117,6 +117,39 @@ impl Focus {
         })
     }
 
+    // A point in this frame's focus order, for asking afterwards whether anything registered
+    // since then holds focus.
+    pub(crate) fn mark() -> usize {
+        FOCUS.with(|state| state.borrow().order.len())
+    }
+
+    // Whether the focused widget registered after `mark`, so a container can tell that focus
+    // is somewhere inside it.
+    pub(crate) fn focused_since(mark: usize) -> bool {
+        FOCUS.with(|state| {
+            let state = state.borrow();
+            let Some(focused) = state.focused else {
+                return false;
+            };
+            state
+                .order
+                .get(mark..)
+                .is_some_and(|ids| ids.contains(&focused))
+        })
+    }
+
+    // Forgets every widget registered so far this frame, so Tab can no longer reach them. The
+    // automatic ids carry on counting, so widgets registered afterwards keep the ids they would
+    // have had.
+    pub(crate) fn forget_registered() {
+        FOCUS.with(|state| state.borrow_mut().order.clear());
+    }
+
+    // The first widget registered after `mark`, if any.
+    pub(crate) fn first_since(mark: usize) -> Option<FocusId> {
+        FOCUS.with(|state| state.borrow().order.get(mark).copied())
+    }
+
     // Forgets this frame's registrations; the focused id itself persists.
     pub(crate) fn begin_frame() {
         FOCUS.with(|state| {

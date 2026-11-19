@@ -42,9 +42,131 @@ impl Align {
     }
 }
 
+/// A run of text with a style of its own, for putting several styles in one [`Text`].
+///
+/// Build the parts with [`Span::new`] and the same style methods [`Text`] has, then put them
+/// together with [`Text::spans`]:
+///
+/// ```
+/// use auxior::{Color, Span, Text};
+/// use auxior::testing::TestTerminal;
+///
+/// let hint = Text::spans([
+///     Span::new("enter").fg(Color::Cyan).bold(true),
+///     Span::new(" sign in"),
+/// ]);
+///
+/// let mut term = TestTerminal::new(13, 1);
+/// term.draw(&hint);
+///
+/// term.assert_text("enter sign in");
+/// assert_eq!(term.cell(0, 0).unwrap().fg, Color::Cyan);
+/// assert_eq!(term.cell(6, 0).unwrap().fg, Color::Reset);
+/// ```
+///
+/// A span's color replaces the text's own, and its attributes add to the text's, so a style
+/// set on the whole [`Text`] is a default every span starts from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Span {
+    text: String,
+    style: SpanStyle,
+}
+
+// What a span changes about the style of the text it sits in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct SpanStyle {
+    fg: Option<Color>,
+    bold: bool,
+    italic: bool,
+    underline: bool,
+    reverse: bool,
+    dim: bool,
+    strikethrough: bool,
+}
+
+impl SpanStyle {
+    // `base` with this span's changes made to it.
+    fn apply(self, mut base: Cell) -> Cell {
+        if let Some(fg) = self.fg {
+            base.fg = fg;
+        }
+        base.b |= self.bold;
+        base.i |= self.italic;
+        base.u |= self.underline;
+        base.r |= self.reverse;
+        base.d |= self.dim;
+        base.s |= self.strikethrough;
+        base
+    }
+}
+
+impl Span {
+    /// A span showing `text`, styled like the text around it until told otherwise.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            style: SpanStyle::default(),
+        }
+    }
+
+    /// Sets the span's color, in place of the text's own.
+    pub fn fg(mut self, color: Color) -> Self {
+        self.style.fg = Some(color);
+        self
+    }
+
+    /// Sets whether the span is bold.
+    pub fn bold(mut self, set: bool) -> Self {
+        self.style.bold = set;
+        self
+    }
+
+    /// Sets whether the span is italic.
+    pub fn italic(mut self, set: bool) -> Self {
+        self.style.italic = set;
+        self
+    }
+
+    /// Sets whether the span is underlined.
+    pub fn underline(mut self, set: bool) -> Self {
+        self.style.underline = set;
+        self
+    }
+
+    /// Sets whether the span is reversed. See [`Text::reverse`].
+    pub fn reverse(mut self, set: bool) -> Self {
+        self.style.reverse = set;
+        self
+    }
+
+    /// Sets whether the span is dimmed.
+    pub fn dim(mut self, set: bool) -> Self {
+        self.style.dim = set;
+        self
+    }
+
+    /// Sets whether the span is struck through.
+    pub fn strikethrough(mut self, set: bool) -> Self {
+        self.style.strikethrough = set;
+        self
+    }
+
+    /// The span's text.
+    pub fn content(&self) -> &str {
+        &self.text
+    }
+}
+
+impl<T: Into<String>> From<T> for Span {
+    fn from(text: T) -> Self {
+        Span::new(text)
+    }
+}
+
 /// A block of text, one row per line.
 ///
-/// Lines are cut off at the edge unless [`wrap`](Text::wrap()) is on.
+/// Lines are cut off at the edge unless [`wrap`](Text::wrap()) is on. To mix styles in one
+/// block, build it from [`Span`]s with [`Text::spans`].
 ///
 /// ```
 /// use auxior::{Area, Buffer, Canvas, Color, Text, Widget};
@@ -72,6 +194,9 @@ pub struct Text {
     wrap: bool,
     align: Align,
     ellipsis: bool,
+    // Where each span sits in `content`, in order and without overlaps. Empty for text with
+    // one style throughout.
+    spans: Vec<(Range<usize>, SpanStyle)>,
 }
 
 impl Text {
@@ -90,7 +215,49 @@ impl Text {
             wrap: false,
             align: Align::default(),
             ellipsis: false,
+            spans: Vec::new(),
         }
+    }
+
+    /// Text made of spans, each with a style of its own, drawn one after another.
+    ///
+    /// The spans are joined into one text, so it wraps, aligns and measures exactly as the
+    /// same words in [`Text::new`] would, and a span may break across rows or hold line breaks
+    /// of its own. A plain string works as a span with no style of its own.
+    ///
+    /// ```
+    /// use auxior::{Color, Span, Text};
+    ///
+    /// let status = Text::spans([
+    ///     Span::new("●").fg(Color::Green),
+    ///     " connected".into(),
+    /// ]);
+    /// assert_eq!(status.content(), "● connected");
+    /// ```
+    pub fn spans(spans: impl IntoIterator<Item = Span>) -> Self {
+        let mut text = Self::new(String::new());
+        for span in spans {
+            text = text.span(span);
+        }
+        text
+    }
+
+    /// Adds a span to the end of the text.
+    ///
+    /// ```
+    /// use auxior::{Color, Span, Text};
+    ///
+    /// let hint = Text::new("press ").span(Span::new("q").bold(true)).span(" to quit");
+    /// assert_eq!(hint.content(), "press q to quit");
+    /// ```
+    pub fn span(mut self, span: impl Into<Span>) -> Self {
+        let span = span.into();
+        let start = self.content.len();
+        self.content.push_str(&span.text);
+        if span.style != SpanStyle::default() && !span.text.is_empty() {
+            self.spans.push((start..self.content.len(), span.style));
+        }
+        self
     }
 
     /// Sets the text color.
@@ -235,6 +402,16 @@ impl Text {
         &self.content
     }
 
+    // The style of the character at byte `index` of the content: `base` with any span there
+    // applied to it.
+    fn style_at(&self, index: usize, base: Cell) -> Cell {
+        let span = self.spans.partition_point(|(range, _)| range.end <= index);
+        match self.spans.get(span) {
+            Some((range, style)) if range.contains(&index) => style.apply(base),
+            _ => base,
+        }
+    }
+
     // The rows this text occupies when drawn `width` columns wide.
     fn rows(&self, width: u16) -> Vec<&str> {
         if !self.wrap {
@@ -288,6 +465,9 @@ impl Widget for Text {
 
             // The last row shown stands in for the rows below it as well.
             let stands_in = rows_dropped && row + 1 == shown;
+            // Every row is a slice of `content`, so where it starts there says which spans
+            // it holds.
+            let start = line.as_ptr() as usize - self.content.as_ptr() as usize;
             let line = if self.ellipsis && (stands_in || text_width(line) > width) {
                 Cow::Owned(ellipsize(line, width))
             } else {
@@ -295,7 +475,25 @@ impl Widget for Text {
             };
 
             let x = self.align.offset(text_width(&line), width);
-            canvas.set_str(x, y, &line, style);
+            if self.spans.is_empty() {
+                canvas.set_str(x, y, &line, style);
+                continue;
+            }
+
+            // A shortened row is the start of its slice and then the ellipsis, which takes the
+            // style of the first character it stands in for.
+            let mut x = x;
+            let mut buf = [0_u8; 4];
+            for (offset, ch) in line.char_indices() {
+                let cell = self.style_at(start + offset, style);
+                let drawn = canvas.set_str(x, y, ch.encode_utf8(&mut buf), cell);
+                // As with a single style, the row stops at the first character that does not
+                // fit, rather than fitting narrower ones in after it.
+                if drawn == 0 && ch.width().unwrap_or(0) > 0 {
+                    break;
+                }
+                x = x.saturating_add(drawn);
+            }
         }
     }
 
@@ -736,5 +934,115 @@ mod tests {
         assert_eq!(text.default_width(), 11);
         assert_eq!(text.default_height(), 1);
         assert_eq!(text.wrap(true).height_for_width(6), 2);
+    }
+
+    #[test]
+    fn each_span_draws_in_its_own_style() {
+        let text = Text::spans([
+            Span::new("ab").fg(Color::Red),
+            Span::new("cd"),
+            Span::new("ef").bold(true),
+        ]);
+        let buf = render_text(&text, 8, 1);
+
+        assert_eq!(row(&buf, 0), "abcdef");
+        let fg: Vec<_> = (0..6).map(|x| buf.get(x, 0).unwrap().fg).collect();
+        assert_eq!(fg[..2], [Color::Red, Color::Red]);
+        assert_eq!(fg[2..], [Color::Reset; 4]);
+        assert!(!buf.get(3, 0).unwrap().b);
+        assert!(buf.get(4, 0).unwrap().b && buf.get(5, 0).unwrap().b);
+    }
+
+    #[test]
+    fn a_span_builds_on_the_style_of_the_whole_text() {
+        let text = Text::spans([
+            Span::new("a").underline(true),
+            Span::new("b").fg(Color::Blue),
+        ])
+        .fg(Color::Green)
+        .italic(true);
+        let buf = render_text(&text, 2, 1);
+
+        let a = buf.get(0, 0).unwrap();
+        assert_eq!(a.fg, Color::Green);
+        assert!(a.i && a.u);
+
+        let b = buf.get(1, 0).unwrap();
+        assert_eq!(b.fg, Color::Blue);
+        assert!(b.i && !b.u);
+    }
+
+    #[test]
+    fn spans_keep_their_style_across_a_wrap() {
+        let text = Text::spans([Span::new("hello wo"), Span::new("rld").fg(Color::Red)]).wrap(true);
+        let buf = render_text(&text, 6, 2);
+
+        assert_eq!(row(&buf, 0), "hello");
+        assert_eq!(row(&buf, 1), "world");
+        let fg: Vec<_> = (0..5).map(|x| buf.get(x, 1).unwrap().fg).collect();
+        assert_eq!(
+            fg,
+            [
+                Color::Reset,
+                Color::Reset,
+                Color::Red,
+                Color::Red,
+                Color::Red
+            ]
+        );
+    }
+
+    #[test]
+    fn spans_measure_as_the_joined_text_does() {
+        let spans = Text::spans([Span::new("one\ntw"), Span::new("o three").bold(true)]);
+        let plain = Text::new("one\ntwo three");
+
+        assert_eq!(spans.content(), plain.content());
+        assert_eq!(spans.default_width(), plain.default_width());
+        assert_eq!(spans.default_height(), 2);
+        assert_eq!(render_to_text(&spans, 9, 2), render_to_text(&plain, 9, 2));
+    }
+
+    #[test]
+    fn spans_are_aligned_as_one_row() {
+        let text = Text::spans([Span::new("a").fg(Color::Red), Span::new("b")]).align(Align::End);
+        let buf = render_text(&text, 4, 1);
+
+        assert_eq!(row(&buf, 0), "  ab");
+        assert_eq!(buf.get(2, 0).unwrap().fg, Color::Red);
+        assert_eq!(buf.get(3, 0).unwrap().fg, Color::Reset);
+    }
+
+    #[test]
+    fn the_ellipsis_takes_the_style_of_what_it_replaces() {
+        let text = Text::spans([Span::new("abc"), Span::new("def").fg(Color::Red)]).ellipsis(true);
+        let buf = render_text(&text, 5, 1);
+
+        assert_eq!(row(&buf, 0), "abcd…");
+        assert_eq!(buf.get(3, 0).unwrap().fg, Color::Red);
+        assert_eq!(buf.get(4, 0).unwrap().fg, Color::Red);
+    }
+
+    #[test]
+    fn wide_characters_in_spans_take_two_columns() {
+        let text = Text::spans([Span::new("日").fg(Color::Red), Span::new("x")]);
+        let buf = render_text(&text, 4, 1);
+
+        assert_eq!(buf.get(0, 0).unwrap().ch, '日');
+        assert_eq!(buf.get(2, 0).unwrap().ch, 'x');
+        assert_eq!(buf.get(2, 0).unwrap().fg, Color::Reset);
+    }
+
+    #[test]
+    fn a_row_of_spans_stops_at_the_first_character_that_does_not_fit() {
+        let text = Text::spans([Span::new("a日").fg(Color::Red), Span::new("b")]);
+        assert_eq!(render_to_text(&text, 2, 1), "a ");
+    }
+
+    #[test]
+    fn unstyled_and_empty_spans_add_no_ranges() {
+        let text = Text::new("a").span("b").span(Span::new("").bold(true));
+        assert!(text.spans.is_empty());
+        assert_eq!(text.content(), "ab");
     }
 }

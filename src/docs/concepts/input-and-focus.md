@@ -14,7 +14,10 @@ by a click. Scroll views, links and focus work the same way. You describe the
 behavior once and Auxior routes to it.
 
 **Directly.** Every event also reaches your frame callback in `events`, so you can
-check for anything yourself:
+check for anything yourself. [`ctx.unhandled(events)`](crate::RenderContext::unhandled)
+leaves out the ones a widget already used — keys typed into a focused field, Tab,
+a button's key, clicks that landed on something — which is what an app's own
+shortcuts want:
 
 ```rust,no_run
 use auxior::{App, AppConfig, AppEvent, ControlFlow, KeyBinding, KeyCode};
@@ -23,8 +26,8 @@ let mut app = App::with_config(AppConfig::new())?;
 let save = KeyBinding::ctrl(KeyCode::Char('s'));
 let quit = KeyBinding::new(KeyCode::Esc);
 
-app.run(|_buf, _previous, events, _ctx, _stats| {
-    for event in events {
+app.run(|_buf, _previous, events, ctx, _stats| {
+    for event in ctx.unhandled(events) {
         if let AppEvent::Key(key) = event {
             if save.matches(key) {
                 // Save the document.
@@ -39,8 +42,9 @@ app.run(|_buf, _previous, events, _ctx, _stats| {
 # Ok::<(), std::io::Error>(())
 ```
 
-Events reach the callback *after* they've been routed to widgets, and every event
-is delivered either way.
+Events reach the callback *after* they've been routed to widgets. Every event is
+in `events` either way; [`ctx.is_handled(index)`](crate::RenderContext::is_handled)
+says whether a widget used the one at `index`.
 
 ## Naming keys
 
@@ -96,7 +100,8 @@ let config = AppConfig::new()
 # let _ = config;
 ```
 
-Quit keys are checked before anything else, so no widget ever sees them.
+A quit key goes to the focused widget first, so a `q` typed into a focused field
+types a `q`. Anywhere else, it quits before any other binding sees it.
 
 ## Focus
 
@@ -156,16 +161,11 @@ Backspace, Delete and the arrow keys, before any binding sees them. Keys it
 doesn't use carry on as normal, so Escape and your own shortcuts still work, and
 Tab still leaves the field.
 
-That has one consequence worth planning for: **a quit key can't be typed.** Quit
-keys are checked before anything else, so in an app with text fields, `q` would
-quit instead of appearing in the field. Use a key nobody types into a field:
-
-```rust
-use auxior::{AppConfig, KeyBinding, KeyCode};
-
-let config = AppConfig::new().quit_key(KeyBinding::ctrl(KeyCode::Char('c')));
-# let _ = config;
-```
+That includes quit keys: with `q` as a quit key, a focused field types the `q`,
+and the app quits on `q` only while no field has focus. Your own shortcuts should
+follow the same rule by reading
+[`ctx.unhandled(events)`](crate::RenderContext::unhandled) — otherwise a `q` typed
+into a field would also run your `q` shortcut.
 
 The [Input page](../widgets/input.md) covers the rest: filters, passwords,
 numbers and the editing keys.

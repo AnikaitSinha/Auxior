@@ -7,64 +7,81 @@ const WHEEL_ROWS: i16 = 3;
 
 // Routes one frame's events, in order, to the key bindings, click regions and
 // focus order registered while the previous frame rendered: the frame the user
-// was looking at when they acted.
-pub(crate) fn dispatch_input(events: &[AppEvent]) {
+// was looking at when they acted. Returns, for each event, whether a widget used it.
+pub(crate) fn dispatch_input(events: &[AppEvent]) -> Vec<bool> {
+    dispatch_events(events, &[]).handled
+}
+
+// What became of one frame's events.
+pub(crate) struct Dispatched {
+    // Whether a widget used each event, by index. Events after a quit key are
+    // never offered to anything, and count as unused.
+    pub(crate) handled: Vec<bool>,
+    // Whether a quit key arrived that no focused widget took.
+    pub(crate) quit: bool,
+}
+
+// `dispatch_input`, also watching for `quit_keys`. A quit key goes to the focused
+// widget first, so typing `q` into a field types it, but it beats the app-wide
+// bindings, and nothing after it is dispatched.
+pub(crate) fn dispatch_events(events: &[AppEvent], quit_keys: &[KeyBinding]) -> Dispatched {
     // A resize moves widgets, so later clicks would land on stale regions.
     let mut regions_current = true;
+    let mut handled = vec![false; events.len()];
 
-    for event in events {
-        match event {
-            AppEvent::Resize { .. } => regions_current = false,
+    for (index, event) in events.iter().enumerate() {
+        let used = match event {
+            AppEvent::Resize { .. } => {
+                regions_current = false;
+                false
+            }
             AppEvent::Mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
                 column,
                 row,
                 ..
-            }) => {
-                if regions_current {
-                    MouseMap::fire(*column, *row);
-                }
-            }
+            }) => regions_current && MouseMap::fire(*column, *row).is_some(),
             AppEvent::Mouse(MouseEvent {
                 kind: kind @ (MouseEventKind::ScrollUp | MouseEventKind::ScrollDown),
                 column,
                 row,
                 ..
             }) => {
-                if regions_current {
-                    let rows = if *kind == MouseEventKind::ScrollDown {
-                        WHEEL_ROWS
-                    } else {
-                        -WHEEL_ROWS
-                    };
-                    MouseMap::fire_scroll(*column, *row, rows);
-                }
+                let rows = if *kind == MouseEventKind::ScrollDown {
+                    WHEEL_ROWS
+                } else {
+                    -WHEEL_ROWS
+                };
+                regions_current && MouseMap::fire_scroll(*column, *row, rows)
             }
             AppEvent::Key(key) => {
                 let Some(binding) = KeyBinding::from_event(key) else {
                     continue;
                 };
 
-                if let Some(forward) = traversal_direction(binding) {
-                    if Focus::traverse(forward) {
-                        continue;
-                    }
-                }
-
                 // A widget that takes raw keys, such as a text field, sees
-                // them before anything else while it holds focus.
-                if KeyMap::fire_typing(key) {
-                    continue;
-                }
+                // them before anything else while it holds focus, and the
+                // focused widget's bindings come next.
+                let by_focus = traversal_direction(binding).is_some_and(Focus::traverse)
+                    || KeyMap::fire_typing(key)
+                    || KeyMap::fire_focused(binding);
 
-                // The focused widget's bindings win over app-wide ones.
-                if KeyMap::fire_focused(binding) {
-                    continue;
+                if !by_focus && quit_keys.contains(&binding) {
+                    return Dispatched {
+                        handled,
+                        quit: true,
+                    };
                 }
-                KeyMap::fire(binding);
+                by_focus || KeyMap::fire(binding)
             }
-            _ => {}
-        }
+            _ => false,
+        };
+        handled[index] = used;
+    }
+
+    Dispatched {
+        handled,
+        quit: false,
     }
 }
 
@@ -365,5 +382,76 @@ mod tests {
         dispatch_input(&[key(KeyCode::Tab)]);
 
         assert_eq!(Focus::focused(), Some(next));
+    }
+
+    #[test]
+    fn dispatch_reports_which_events_a_widget_used() {
+        reset();
+        let (id, _) = Focus::register(None);
+        Focus::set(id);
+        KeyMap::bind_typing(id, |event| matches!(event.code, KeyCode::Char('a')));
+        KeyMap::bind('b', || {});
+        MouseMap::region(Area::new(0, 0, 2, 1), || {});
+
+        let handled = dispatch_input(&[
+            key(KeyCode::Char('a')),
+            key(KeyCode::Char('b')),
+            key(KeyCode::Char('c')),
+            click(1, 0),
+            click(5, 5),
+            AppEvent::Tick,
+        ]);
+
+        assert_eq!(handled, [true, true, false, true, false, false]);
+    }
+
+    #[test]
+    fn a_focused_field_takes_a_quit_key_before_it_quits() {
+        reset();
+        let (id, _) = Focus::register(None);
+        Focus::set(id);
+        let typed = Rc::new(Cell::new(0));
+        let count = typed.clone();
+        KeyMap::bind_typing(id, move |event| match event.code {
+            KeyCode::Char(_) => {
+                count.set(count.get() + 1);
+                true
+            }
+            _ => false,
+        });
+        let quit_keys = [KeyBinding::from('q'), KeyBinding::from(KeyCode::Esc)];
+
+        let typing = dispatch_events(&[key(KeyCode::Char('q'))], &quit_keys);
+        assert!(!typing.quit);
+        assert_eq!(typing.handled, [true]);
+        assert_eq!(typed.get(), 1);
+
+        // The field declines Esc, so it still quits.
+        let escape = dispatch_events(&[key(KeyCode::Esc)], &quit_keys);
+        assert!(escape.quit);
+    }
+
+    #[test]
+    fn a_quit_key_beats_app_wide_bindings_and_ends_the_batch() {
+        reset();
+        let (bound, bound_handler) = counter();
+        KeyMap::bind('q', bound_handler);
+        let (after, after_handler) = counter();
+        KeyMap::bind('x', after_handler);
+        let (before, before_handler) = counter();
+        KeyMap::bind('a', before_handler);
+
+        let dispatched = dispatch_events(
+            &[
+                key(KeyCode::Char('a')),
+                key(KeyCode::Char('q')),
+                key(KeyCode::Char('x')),
+            ],
+            &[KeyBinding::from('q')],
+        );
+
+        assert!(dispatched.quit);
+        assert_eq!((before.get(), bound.get(), after.get()), (1, 0, 0));
+        assert_eq!(dispatched.handled, [true, false, false]);
     }
 }

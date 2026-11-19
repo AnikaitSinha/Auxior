@@ -29,6 +29,8 @@ assert_eq!(row(4), "╰────────────╯");
 | [`border(on)`](crate::Div::border) | off | Draws a border around the div. |
 | [`border_style(style)`](crate::Div::border_style) | [`Rounded`](crate::BorderStyle) | The line the border is drawn with. |
 | [`border_sides(sides)`](crate::Div::border_sides) | [`all()`](crate::BorderSides::all) | Which edges are drawn. |
+| [`border_fg(color)`](crate::Div::border_fg) | the terminal's color | The color of the border's lines. |
+| [`border_focus_fg(color)`](crate::Div::border_focus_fg) | none | The color of the lines while a widget inside holds focus. |
 | [`title(text)`](crate::Div::title) | none | A title, in the border or above the content. |
 | [`title_align(align)`](crate::Div::title_align) | [`Start`](crate::Align) | Where the title sits along its edge. |
 | [`footer(text)`](crate::Div::footer) | none | A footer, in the bottom border or below the content. |
@@ -82,6 +84,45 @@ let div = Div::new().border(true).border_style(BorderStyle::Custom(dots));
 
 assert_eq!(render_to_text(&div, 3, 3), "···\n· ·\n···");
 ```
+
+### Color
+
+[`border_fg`](crate::Div::border_fg) colors the border's lines and corners. The
+title, the footer and border buttons keep their own colors, so a muted border can
+still carry a bright title.
+
+[`border_focus_fg`](crate::Div::border_focus_fg) gives the lines a second color for
+while **any widget inside the div holds focus**, however deeply it is nested — an
+[`Input`](crate::Input), a [`Button`](crate::Button), a border button of the div's
+own. It is the usual way to show which field of a form is being typed into: the
+whole box lights up, not just the field.
+
+```rust
+use auxior::{Color, Div, Focus, Input, InputState, Text};
+use auxior::testing::TestTerminal;
+
+let key = InputState::new();
+let field = || {
+    Div::new()
+        .border(true)
+        .border_fg(Color::DarkGrey)
+        .border_focus_fg(Color::Cyan)
+        .title(Text::new("api key"))
+        .child(Input::text(&key).placeholder("paste the secret"))
+};
+
+let mut term = TestTerminal::new(20, 3);
+term.draw(&field());
+assert_eq!(term.cell(0, 0).unwrap().fg, Color::DarkGrey);
+
+Focus::set(key.focus_id());
+term.draw(&field());
+assert_eq!(term.cell(0, 0).unwrap().fg, Color::Cyan);
+```
+
+Focus is only known once the children have drawn, so the lines are drawn first and
+recolored afterwards. A div drawn incrementally with
+[`dirty(false)`](crate::Div::dirty) keeps last frame's border, color included.
 
 ### Sides
 
@@ -175,8 +216,28 @@ explains how they're placed.
 
 ## Size
 
+The natural width is what a container that doesn't stretch its children uses:
+a [`Flex`](crate::Flex) that centers them with
+[`align`](crate::Flex::align), say, or an [`Overlay`](crate::Overlay). A boxed
+form centered on screen needs no width of its own:
+
+```rust
+use auxior::{AlignItems, Div, Flex, Text};
+use auxior::testing::render_to_text;
+
+let screen = Flex::column()
+    .align(AlignItems::Center)
+    .child(Div::new().border(true).child(Text::new("sign in")));
+
+assert_eq!(
+    render_to_text(&screen, 13, 3),
+    "  ╭───────╮  \n  │sign in│  \n  ╰───────╯  ",
+);
+```
+
 | Question | Answer |
 |---|---|
+| Natural width | Its widest child (counting a child's `x`, fixed width and margin), plus padding and the border's side edges — or wider, if the title or footer needs the room. At least 1. |
 | Natural height | One row, plus a row for each border edge drawn above or below it: 3 for a full border, 1 for none. |
 | Height at a given width | Its children's flow, plus the border edges, padding, and a loose title or footer, and at least the natural height. |
 

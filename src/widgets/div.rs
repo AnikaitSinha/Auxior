@@ -1,6 +1,8 @@
 use crate::widgets::layout_builders;
+use crossterm::style::Color;
 use unicode_width::UnicodeWidthChar;
 
+use crate::core::Focus;
 use crate::{Align, Area, Canvas, Cell, RenderContext, Text};
 
 use super::button::{BorderAlign, BorderSide, Button};
@@ -197,6 +199,11 @@ pub struct DivOptions {
     pub border_style: BorderStyle,
     /// Which edges of the border are drawn.
     pub border_sides: BorderSides,
+    /// The color the border's lines are drawn in.
+    pub border_fg: Color,
+    /// The color the border's lines are drawn in while a widget inside the div holds focus,
+    /// or `None` to keep [`border_fg`](DivOptions::border_fg).
+    pub border_focus_fg: Option<Color>,
     /// A title shown in the top border, or without a border on its own row above the content.
     pub title: Option<Text>,
     /// Where the title sits along the edge it is drawn on.
@@ -222,6 +229,8 @@ impl Default for DivOptions {
             border: false,
             border_style: BorderStyle::default(),
             border_sides: BorderSides::all(),
+            border_fg: Color::Reset,
+            border_focus_fg: None,
             title: None,
             title_align: Align::Start,
             footer: None,
@@ -255,6 +264,18 @@ impl DivOptions {
     /// Sets which edges of the border are drawn.
     pub fn border_sides(mut self, sides: BorderSides) -> Self {
         self.border_sides = sides;
+        self
+    }
+
+    /// Sets the color the border's lines are drawn in.
+    pub fn border_fg(mut self, color: Color) -> Self {
+        self.border_fg = color;
+        self
+    }
+
+    /// Sets the color the border's lines are drawn in while a widget inside holds focus.
+    pub fn border_focus_fg(mut self, color: Color) -> Self {
+        self.border_focus_fg = Some(color);
         self
     }
 
@@ -382,6 +403,58 @@ impl Div {
         self
     }
 
+    /// Sets the color the border's lines are drawn in. Defaults to the terminal's own text
+    /// color.
+    ///
+    /// Only the lines take it: a title, a footer and border buttons keep their own colors.
+    ///
+    /// ```
+    /// use auxior::{Color, Div};
+    /// use auxior::testing::TestTerminal;
+    ///
+    /// let mut term = TestTerminal::new(3, 2);
+    /// term.draw(&Div::new().border(true).border_fg(Color::Cyan));
+    ///
+    /// assert_eq!(term.cell(1, 0).unwrap().fg, Color::Cyan);
+    /// ```
+    pub fn border_fg(mut self, color: Color) -> Self {
+        self.options.border_fg = color;
+        self
+    }
+
+    /// Sets the color the border's lines are drawn in while any widget inside the div holds
+    /// focus, such as an [`Input`](crate::Input) or a [`Button`](crate::Button), however deep
+    /// it is nested. A border button that holds focus counts as well.
+    ///
+    /// This is the usual way to show which field of a form is being typed into: the whole box
+    /// lights up, not only the field.
+    ///
+    /// ```
+    /// use auxior::{Color, Div, Focus, Input, InputState};
+    /// use auxior::testing::TestTerminal;
+    ///
+    /// let name = InputState::new();
+    /// let field = || {
+    ///     Div::new()
+    ///         .border(true)
+    ///         .border_fg(Color::DarkGrey)
+    ///         .border_focus_fg(Color::Cyan)
+    ///         .child(Input::text(&name))
+    /// };
+    ///
+    /// let mut term = TestTerminal::new(10, 3);
+    /// term.draw(&field());
+    /// assert_eq!(term.cell(0, 0).unwrap().fg, Color::DarkGrey);
+    ///
+    /// Focus::set(name.focus_id());
+    /// term.draw(&field());
+    /// assert_eq!(term.cell(0, 0).unwrap().fg, Color::Cyan);
+    /// ```
+    pub fn border_focus_fg(mut self, color: Color) -> Self {
+        self.options.border_focus_fg = Some(color);
+        self
+    }
+
     /// Sets the title, shown in the top border or, without a border, on its own row above the
     /// content.
     pub fn title(mut self, text: Text) -> Self {
@@ -501,8 +574,11 @@ impl Div {
     }
 
     fn render_content(&self, canvas: &mut Canvas) {
+        // Taken before the border, so a focused border button counts as focus inside.
+        let focus_mark = Focus::mark();
+        let mut lines = Vec::new();
         if self.options.border {
-            draw_border(canvas, &self.options);
+            lines = draw_border(canvas, &self.options);
         } else {
             if let Some(title) = &self.options.title {
                 draw_title(canvas, title, self.options.title_align);
@@ -514,6 +590,16 @@ impl Div {
 
         let content = content_area(canvas, &self.options);
         render_children(&self.children, canvas, content);
+
+        // Whether focus is inside is only known once the children have drawn, so the border's
+        // lines are drawn first and recolored afterwards.
+        if let Some(color) = self.options.border_focus_fg {
+            if Focus::focused_since(focus_mark) {
+                for (x, y, ch) in lines {
+                    canvas.set(x, y, Cell::with_fg(ch, color));
+                }
+            }
+        }
     }
 }
 
@@ -535,6 +621,56 @@ impl Widget for Div {
 
     fn layout(&self) -> &LayoutOptions {
         &self.options.layout
+    }
+
+    // The widest child, plus the border and padding around it, or wider if the title or footer
+    // needs the room.
+    fn default_width(&self) -> u16 {
+        let options = &self.options;
+        let content = self
+            .children
+            .iter()
+            .map(|child| {
+                let layout = child.layout();
+                let width =
+                    layout.clamp_width(layout.width.unwrap_or_else(|| child.default_width()));
+                layout
+                    .x
+                    .unwrap_or(0)
+                    .saturating_add(width)
+                    .saturating_add(layout.margin.horizontal())
+            })
+            .max()
+            .unwrap_or(0);
+
+        let frame = if options.border {
+            options.border_sides.columns()
+        } else {
+            0
+        };
+        let boxed = content
+            .saturating_add(options.padding.saturating_mul(2))
+            .saturating_add(frame);
+
+        // A label in a border keeps a blank cell on either side of itself, inside the corners.
+        let label_width = |label: &Option<Text>, drawn_in_border: bool| {
+            label.as_ref().map_or(0, |label| {
+                let width = label
+                    .layout()
+                    .width
+                    .unwrap_or_else(|| label.default_width());
+                if drawn_in_border {
+                    width.saturating_add(2).saturating_add(frame)
+                } else {
+                    width
+                }
+            })
+        };
+        let sides = options.border_sides;
+        let title = label_width(&options.title, options.border && sides.top);
+        let footer = label_width(&options.footer, options.border && sides.bottom);
+
+        boxed.max(title).max(footer).max(1)
     }
 
     fn default_height(&self) -> u16 {
@@ -806,17 +942,22 @@ struct Edge<'a> {
     side: BorderSide,
     label: Option<&'a Text>,
     align: Align,
+    fg: Color,
 }
 
-fn draw_border(canvas: &mut Canvas, options: &DivOptions) {
+// Draws the border and returns the cells its lines took, as `(x, y, character)`, so they can be
+// recolored once it is known whether focus is inside.
+fn draw_border(canvas: &mut Canvas, options: &DivOptions) -> Vec<(u16, u16, char)> {
     let w = canvas.width();
     let h = canvas.height();
+    let mut lines = Vec::new();
     if w == 0 || h == 0 {
-        return;
+        return lines;
     }
 
     let sides = options.border_sides;
     let chars = options.border_style.chars();
+    let fg = options.border_fg;
 
     // Cells the edges run between: an edge that isn't drawn leaves no corner to avoid.
     let x_start = u16::from(sides.left);
@@ -832,8 +973,9 @@ fn draw_border(canvas: &mut Canvas, options: &DivOptions) {
             side: BorderSide::Top,
             label: options.title.as_ref(),
             align: options.title_align,
+            fg,
         };
-        draw_horizontal_border(canvas, &edge, chars, &options.border_buttons);
+        draw_horizontal_border(canvas, &edge, chars, &options.border_buttons, &mut lines);
     }
 
     if sides.bottom && h > 1 {
@@ -844,8 +986,9 @@ fn draw_border(canvas: &mut Canvas, options: &DivOptions) {
             side: BorderSide::Bottom,
             label: options.footer.as_ref(),
             align: options.footer_align,
+            fg,
         };
-        draw_horizontal_border(canvas, &edge, chars, &options.border_buttons);
+        draw_horizontal_border(canvas, &edge, chars, &options.border_buttons, &mut lines);
     }
 
     if sides.left {
@@ -856,8 +999,9 @@ fn draw_border(canvas: &mut Canvas, options: &DivOptions) {
             side: BorderSide::Left,
             label: None,
             align: Align::Start,
+            fg,
         };
-        draw_vertical_border(canvas, &edge, chars, &options.border_buttons);
+        draw_vertical_border(canvas, &edge, chars, &options.border_buttons, &mut lines);
     }
 
     if sides.right && w > 1 {
@@ -868,24 +1012,30 @@ fn draw_border(canvas: &mut Canvas, options: &DivOptions) {
             side: BorderSide::Right,
             label: None,
             align: Align::Start,
+            fg,
         };
-        draw_vertical_border(canvas, &edge, chars, &options.border_buttons);
+        draw_vertical_border(canvas, &edge, chars, &options.border_buttons, &mut lines);
     }
 
     // Corners last, and only where both of the edges meeting there are drawn. They sit on top
     // of whatever the edges ran through that cell.
+    let mut corner = |x: u16, y: u16, ch: char| {
+        canvas.set(x, y, Cell::with_fg(ch, fg));
+        lines.push((x, y, ch));
+    };
     if sides.top && sides.left {
-        canvas.set(0, 0, Cell::new(chars.top_left));
+        corner(0, 0, chars.top_left);
     }
     if sides.top && sides.right && w > 1 {
-        canvas.set(w - 1, 0, Cell::new(chars.top_right));
+        corner(w - 1, 0, chars.top_right);
     }
     if sides.bottom && sides.left && h > 1 {
-        canvas.set(0, h - 1, Cell::new(chars.bottom_left));
+        corner(0, h - 1, chars.bottom_left);
     }
     if sides.bottom && sides.right && w > 1 && h > 1 {
-        canvas.set(w - 1, h - 1, Cell::new(chars.bottom_right));
+        corner(w - 1, h - 1, chars.bottom_right);
     }
+    lines
 }
 
 fn draw_horizontal_border(
@@ -893,6 +1043,7 @@ fn draw_horizontal_border(
     edge: &Edge,
     chars: BorderChars,
     buttons: &[Button],
+    lines: &mut Vec<(u16, u16, char)>,
 ) {
     if edge.start >= edge.end {
         return;
@@ -987,12 +1138,19 @@ fn draw_horizontal_border(
 
     for x in edge.start..edge.end {
         if !occupied[x as usize] {
-            canvas.set(x, y, Cell::new(chars.horizontal));
+            canvas.set(x, y, Cell::with_fg(chars.horizontal, edge.fg));
+            lines.push((x, y, chars.horizontal));
         }
     }
 }
 
-fn draw_vertical_border(canvas: &mut Canvas, edge: &Edge, chars: BorderChars, buttons: &[Button]) {
+fn draw_vertical_border(
+    canvas: &mut Canvas,
+    edge: &Edge,
+    chars: BorderChars,
+    buttons: &[Button],
+    lines: &mut Vec<(u16, u16, char)>,
+) {
     if edge.start >= edge.end {
         return;
     }
@@ -1069,7 +1227,8 @@ fn draw_vertical_border(canvas: &mut Canvas, edge: &Edge, chars: BorderChars, bu
 
     for y in edge.start..edge.end {
         if !occupied[y as usize] {
-            canvas.set(x, y, Cell::new(chars.vertical));
+            canvas.set(x, y, Cell::with_fg(chars.vertical, edge.fg));
+            lines.push((x, y, chars.vertical));
         }
     }
 }
@@ -1949,5 +2108,148 @@ mod tests {
     fn a_border_in_a_single_column_draws_only_the_left() {
         let div = Div::new().border(true);
         assert_eq!(render_to_text(&div, 1, 3), "╭\n│\n╰");
+    }
+
+    #[test]
+    fn natural_width_is_the_widest_child_plus_border_and_padding() {
+        let div = Div::new()
+            .border(true)
+            .padding(1)
+            .child(Text::new("hello"))
+            .child(Text::new("hi"));
+        assert_eq!(div.default_width(), 5 + 2 + 2);
+
+        // A fixed width and a margin count as the child's own.
+        let div = Div::new().child(Text::new("x").width(6).margin_x(1));
+        assert_eq!(div.default_width(), 8);
+
+        // Edges that are not drawn take no room.
+        let div = Div::new()
+            .border(true)
+            .border_sides(BorderSides::horizontal())
+            .child(Text::new("abc"));
+        assert_eq!(div.default_width(), 3);
+    }
+
+    #[test]
+    fn natural_width_leaves_room_for_the_title() {
+        let div = Div::new()
+            .border(true)
+            .title(Text::new("settings"))
+            .child(Text::new("ok"));
+        // Corner, blank, title, blank, corner.
+        assert_eq!(div.default_width(), 8 + 4);
+        assert_eq!(
+            render_to_text(&div, div.default_width(), 2),
+            "╭ settings ╮\n╰──────────╯"
+        );
+
+        let loose = Div::new().footer(Text::new("1/3")).child(Text::new("a"));
+        assert_eq!(loose.default_width(), 3);
+    }
+
+    #[test]
+    fn an_empty_div_is_still_one_column_wide() {
+        assert_eq!(Div::new().default_width(), 1);
+        assert_eq!(Div::new().border(true).default_width(), 2);
+    }
+
+    #[test]
+    fn a_centered_div_in_a_flex_keeps_its_natural_width() {
+        use crate::{AlignItems, Flex};
+
+        let flex = Flex::column()
+            .align(AlignItems::Center)
+            .child(Div::new().border(true).child(Text::new("hi")));
+
+        assert_eq!(render_to_text(&flex, 8, 3), "  ╭──╮  \n  │hi│  \n  ╰──╯  ");
+    }
+
+    #[test]
+    fn border_fg_colors_the_lines_but_not_the_title() {
+        use crossterm::style::Color;
+
+        let div = Div::new()
+            .border(true)
+            .border_fg(Color::Blue)
+            .title(Text::new("Hi").fg(Color::Red));
+        let buf = render_div(&div, 8, 3);
+
+        for (x, y) in [
+            (0, 0),
+            (6, 0),
+            (7, 0),
+            (0, 1),
+            (7, 1),
+            (0, 2),
+            (3, 2),
+            (7, 2),
+        ] {
+            assert_eq!(buf.get(x, y).unwrap().fg, Color::Blue, "at {x},{y}");
+        }
+        assert_eq!(buf.get(2, 0).unwrap().fg, Color::Red);
+    }
+
+    #[test]
+    fn the_focus_color_applies_only_while_focus_is_inside() {
+        use crossterm::style::Color;
+
+        use crate::core::begin_frame;
+        use crate::{Focus, FocusId};
+
+        let inside = FocusId::named("div-inside");
+        let outside = FocusId::named("div-outside");
+
+        let draw = |focused: FocusId| {
+            begin_frame();
+            Focus::set(focused);
+            Focus::register(Some(outside));
+            let div = Div::new()
+                .border(true)
+                .border_fg(Color::DarkGrey)
+                .border_focus_fg(Color::Cyan)
+                .child(Div::new().child(Focusable(inside)));
+            render_div(&div, 6, 3)
+        };
+
+        let buf = draw(outside);
+        assert_eq!(buf.get(0, 0).unwrap().fg, Color::DarkGrey);
+
+        let buf = draw(inside);
+        assert_eq!(buf.get(0, 0).unwrap().fg, Color::Cyan);
+        assert_eq!(buf.get(5, 1).unwrap().fg, Color::Cyan);
+        assert_eq!(buf.get(2, 2).unwrap().fg, Color::Cyan);
+        Focus::clear();
+    }
+
+    // Registers a focus id and draws nothing.
+    struct Focusable(crate::FocusId);
+
+    impl Widget for Focusable {
+        fn render(&self, _canvas: &mut Canvas) {
+            crate::Focus::register(Some(self.0));
+        }
+
+        fn layout(&self) -> &LayoutOptions {
+            const NONE: &LayoutOptions = &LayoutOptions {
+                x: None,
+                y: None,
+                width: None,
+                height: None,
+                flex: None,
+                width_percent: None,
+                height_percent: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                margin: crate::Margin::none(),
+            };
+            NONE
+        }
+
+        fn default_height(&self) -> u16 {
+            1
+        }
     }
 }

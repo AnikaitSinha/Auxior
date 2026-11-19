@@ -68,6 +68,9 @@ pub mod widgets {
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/scroll-graph.md"))]
     pub mod scroll_graph {}
 
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/line-chart.md"))]
+    pub mod line_chart {}
+
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/image.md"))]
     pub mod image {}
 
@@ -94,6 +97,9 @@ pub mod widgets {
 
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/spinner.md"))]
     pub mod spinner {}
+
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/docs/widgets/overlay.md"))]
+    pub mod overlay {}
 }
 
 pub mod composites {

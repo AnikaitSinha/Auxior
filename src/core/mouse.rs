@@ -83,18 +83,16 @@ impl MouseMap {
     }
 
     // Presses the topmost region under (column, row). A focusable region takes
-    // focus before its handler runs. Returns whether focus moved.
-    pub fn fire(column: u16, row: u16) -> bool {
+    // focus before its handler runs. Returns whether focus moved, or `None` when
+    // there was no region there.
+    pub fn fire(column: u16, row: u16) -> Option<bool> {
         MOUSE_MAP.with(|map| {
             let mut map = map.borrow_mut();
-            let Some(region) = map
+            let region = map
                 .regions
                 .iter_mut()
                 .rev()
-                .find(|region| region.area.contains(column, row))
-            else {
-                return false;
-            };
+                .find(|region| region.area.contains(column, row))?;
 
             let moved = match region.focus {
                 Some(id) if !Focus::is_focused(id) => {
@@ -105,7 +103,7 @@ impl MouseMap {
             };
 
             (region.handler)();
-            moved
+            Some(moved)
         })
     }
 
@@ -278,7 +276,7 @@ mod tests {
         let (total, scroll) = scroll_total();
         MouseMap::scroll_region(Area::new(3, 3, 1, 0), scroll);
 
-        assert!(!MouseMap::fire(3, 3));
+        assert_eq!(MouseMap::fire(3, 3), None);
         assert!(!MouseMap::fire_scroll(3, 3, 1));
         assert_eq!((count.get(), total.get()), (0, 0));
     }
@@ -309,9 +307,9 @@ mod tests {
             seen.set(Focus::is_focused(id));
         });
 
-        assert!(MouseMap::fire(1, 0), "focus moved");
+        assert_eq!(MouseMap::fire(1, 0), Some(true), "focus moved");
         assert!(focused_during_handler.get());
-        assert!(!MouseMap::fire(1, 0), "already focused");
+        assert_eq!(MouseMap::fire(1, 0), Some(false), "already focused");
     }
 
     #[test]

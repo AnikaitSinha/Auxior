@@ -26,6 +26,22 @@ below describes 0.1.0 as it stands.
 - `Toast`: a message that shows for a while and goes away, timed by the clock.
 - `Spinner`: a one-character animation that needs no state, since the frame is
   worked out from the clock rather than counted.
+- `LineChart`: several `Series` in braille, each in its own colour, with fixed
+  or fitted ranges, dotted `Reference` lines with labels, shading between two
+  series (`fill_between`) or down to a value (`fill_to`), y-axis labels, and gaps
+  for missing (`NaN`) values. Lines are clipped to the chart before they are
+  drawn, so a value far off the scale costs nothing extra.
+- `Overlay` draws a widget over what is already on screen, sized to the child and
+  aligned anywhere, blanking only the cells under it. `modal(true)` shuts out
+  everything drawn before it — key bindings, focus, clicks, the cursor — and
+  moves focus into the dialog; `dim_backdrop(true)` dims the rest of the screen.
+  A `Toast` in an `Overlay` floats instead of taking layout space.
+- Mixed styles in one `Text`, through `Text::spans` and `Text::span` with
+  `Span`s. Spans wrap, align, measure and take an ellipsis exactly as the same
+  text in one style would.
+- `Div::border_fg` colours a border's lines, and `Div::border_focus_fg` gives
+  them another colour while any widget inside holds focus.
+- `Flex::spacer(n)` for blank rows or columns at one place in a flex.
 - `Bar` and `ScrollGraph`, plus the `List`, `Table`, `StatusBar` and
   `SparklineGraph` composites.
 - `Image`: pictures and animations drawn as half blocks, braille or ASCII, sampled
@@ -42,6 +58,9 @@ below describes 0.1.0 as it stands.
   four sides), `min_width`/`max_width`/`min_height`/`max_height`, and
   `width_percent`/`height_percent`. `Div`, `Flex`, `Grid` and `List` all honour
   them, in drawing and in measuring themselves.
+- `Div` has a natural width: its widest child plus padding and border, or its
+  title's width if that is wider. A box centred in a `Flex` keeps its size
+  instead of collapsing to one column.
 - `Flex` shares out space the children leave with `justify` (`Start`, `Center`,
   `End`, `SpaceBetween`, `SpaceEvenly`, `SpaceAround`) and places them across
   the direction with `align` (`Stretch`, `Start`, `Center`, `End`).
@@ -60,6 +79,12 @@ below describes 0.1.0 as it stands.
   change very little.
 - Key bindings with modifiers, Tab focus traversal, mouse clicks and wheel, all
   routed against the frame the user was looking at.
+- `RenderContext::unhandled` and `RenderContext::is_handled` tell the frame
+  callback which events a widget already used — a key typed into a field, Tab, a
+  button's key, a click that landed — so an app's own shortcuts can skip them.
+- A quit key goes to the focused widget first: with `q` as a quit key, `q` typed
+  into a focused `Input` types a `q`, and quits only while no field has focus.
+  It still beats app-wide bindings, and nothing after it in the batch is routed.
 - Wide and zero-width characters handled throughout: layout, wrapping, clipping
   and the renderer.
 - The terminal's own cursor can be asked for by a widget, through
@@ -67,6 +92,12 @@ below describes 0.1.0 as it stands.
   blinks where typing will land and IME and screen readers have somewhere to
   point. `InputState::focus_id` makes a field focusable from code.
 - The terminal is restored on exit and on panic, with the panic message readable.
+
+### Fixed
+
+- An empty, focused `Input` drew its cursor over the first character of its
+  placeholder; it now underlines that character instead.
+- `media/convert.rs` no longer produces warnings in downstream builds.
 
 ### Testing
 
@@ -81,9 +112,12 @@ below describes 0.1.0 as it stands.
   case.
 - `Buffer::row_text` and `Buffer::to_text` read a buffer back as text, skipping
   the continuation cell after a double-width character.
+- `TestTerminal::send` routes input to the frame last drawn, as a running app
+  does, and reports which events a widget used. Each `draw` now starts a fresh
+  frame of key bindings, click regions and focus order, as `App::run` does.
 
 ### Documentation
 
-- A 33-page guide covering the engine, the concepts, every widget and testing,
+- A 35-page guide covering the engine, the concepts, every widget and testing,
   published with the API reference and readable as Markdown in `src/docs/`.
 - Doc comments on every public item, with runnable examples that run as tests.

@@ -166,11 +166,32 @@ a column flex an explicit `height` if it should fill the div.
 | Natural height | Its tallest child | Its children's heights plus gaps |
 | Height at a given width | Its tallest child at the width it would get | Its children's heights at that width, plus gaps |
 
-## Notes
+## Spacers
 
-- A `flex(1)` spacer — any widget with nothing to draw, such as `Text::new("")` —
-  still works for pushing one child away from another, and is the way to do it
-  when the children on either side should keep different amounts of room.
+[`spacer(n)`](crate::Flex::spacer) adds `n` blank cells exactly where it is added —
+rows in a column, columns in a row — where [`gap`](crate::Flex::gap) puts the same
+space between every pair of children:
+
+```rust
+use auxior::{Flex, Text};
+use auxior::testing::render_to_text;
+
+let column = Flex::column()
+    .child(Text::new("title"))
+    .spacer(1)
+    .child(Text::new("body"))
+    .child(Text::new("more"));
+
+assert_eq!(render_to_text(&column, 5, 4), "title\n     \nbody \nmore ");
+```
+
+A spacer takes no room across the direction, so it never makes a column wider or a
+row taller. It runs in the direction the flex has when it is added, so set
+[`direction`](crate::Flex::direction) first.
+
+For space that grows, a `flex(1)` child with nothing to draw — such as
+`Text::new("")` — pushes one child away from another, and is the way to do it when
+the children on either side should keep different amounts of room.
 
 ## See it running
 

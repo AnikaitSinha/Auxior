@@ -58,10 +58,38 @@ toast goes when it should.
 
 ## Where it goes
 
-A toast takes space in the layout like any other widget — it does not float over
-what's underneath, because there is no overlay layer yet. Put it where it should
-appear, commonly as a [`Div`](crate::Div) child with a `y` position, which keeps
-it out of the div's flow and leaves the content below undisturbed:
+To float a toast over the screen rather than give it a place in the layout, draw
+it in an [`Overlay`](crate::Overlay) after everything else. The usual spot is a
+corner:
+
+```rust
+use auxior::{Align, Overlay, Text, Toast, ToastState, Widget};
+use auxior::testing::TestTerminal;
+
+let state = ToastState::new();
+state.show("Saved");
+
+let mut term = TestTerminal::new(14, 4);
+term.draw_with(|canvas, ctx| {
+    Text::new("one\ntwo\nthree\nfour").render_with_context(canvas, ctx);
+    Overlay::new(Toast::new(&state))
+        .align(Align::End, Align::End)
+        .margin_right(1)
+        .render_with_context(canvas, ctx);
+});
+
+term.assert_text(
+    "one\n\
+     two ╭───────╮\n\
+     thre│ Saved │\n\
+     four╰───────╯",
+);
+```
+
+Drawn on its own, a toast takes space in the layout like any other widget. Put it
+where it should appear, commonly as a [`Div`](crate::Div) child with a `y`
+position, which keeps it out of the div's flow and leaves the content below
+undisturbed:
 
 ```rust
 use auxior::{Div, Text, Toast, ToastState};

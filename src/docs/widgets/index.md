@@ -4,11 +4,13 @@ The building blocks every screen is made from.
 
 **Content** — widgets that draw something:
 
-- [Text](text.md): plain or styled text, optionally wrapped
+- [Text](text.md): plain or styled text, optionally wrapped, in one style or many
 - [Button](button.md): a label that runs code when pressed
 - [Input](input.md): a field the user types into — text, password or number
 - [Bar](bar.md): a one-row progress bar
 - [ScrollGraph](scroll-graph.md): a graph of recent values, drawn in braille
+- [LineChart](line-chart.md): several lines in their own colors, with reference
+  lines and shading, drawn in braille
 - [Image](image.md): a picture or an animation, drawn as coloured characters
 - [Spinner](spinner.md): a one-character animation for work in progress
 - [Toast](toast.md): a message that shows for a while and goes away
@@ -19,6 +21,7 @@ The building blocks every screen is made from.
 - [Div](div.md): a box with a border, title and padding, stacking its children
 - [Flex](flex.md): a row or column that shares out space
 - [Grid](grid.md): children in rows and columns
+- [Overlay](overlay.md): a widget drawn on top of the screen, such as a dialog
 
 **Documents:**
 

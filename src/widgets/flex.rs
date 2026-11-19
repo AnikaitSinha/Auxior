@@ -241,6 +241,35 @@ impl Flex {
         self
     }
 
+    /// Adds `n` blank cells after the previous children: rows in a column, columns in a row.
+    ///
+    /// Unlike [`gap`](Flex::gap), which goes between every pair of children, a spacer goes
+    /// exactly where it is added. It takes no room across the direction, so it never makes the
+    /// flex wider (or taller) than its other children do.
+    ///
+    /// ```
+    /// use auxior::{Flex, Text};
+    /// use auxior::testing::render_to_text;
+    ///
+    /// let column = Flex::column()
+    ///     .child(Text::new("title"))
+    ///     .spacer(1)
+    ///     .child(Text::new("body"));
+    ///
+    /// assert_eq!(render_to_text(&column, 5, 3), "title\n     \nbody ");
+    /// ```
+    ///
+    /// The spacer runs in the direction the flex has when it is added, so call
+    /// [`direction`](Flex::direction) before adding one.
+    pub fn spacer(mut self, n: u16) -> Self {
+        let layout = match self.direction {
+            FlexDirection::Column => LayoutOptions::default().height(n).width(0),
+            FlexDirection::Row => LayoutOptions::default().width(n).height(0),
+        };
+        self.children.push(Box::new(Spacer { layout }));
+        self
+    }
+
     /// Draws this widget; the same as [`Widget::render`](crate::Widget::render).
     pub fn render(&self, canvas: &mut Canvas) {
         <Self as Widget>::render(self, canvas);
@@ -390,6 +419,27 @@ impl Widget for Flex {
         let content: u16 = self.children.iter().map(|c| natural(c.as_ref())).sum();
 
         gaps.saturating_add(content)
+    }
+}
+
+// Blank space added with `Flex::spacer`, sized along the flex's direction and nothing across it.
+struct Spacer {
+    layout: LayoutOptions,
+}
+
+impl Widget for Spacer {
+    fn render(&self, _canvas: &mut Canvas) {}
+
+    fn layout(&self) -> &LayoutOptions {
+        &self.layout
+    }
+
+    fn default_height(&self) -> u16 {
+        self.layout.height.unwrap_or(0)
+    }
+
+    fn default_width(&self) -> u16 {
+        self.layout.width.unwrap_or(0)
     }
 }
 
@@ -1104,5 +1154,33 @@ mod tests {
             .child(Text::new("ab"));
 
         assert_eq!(render_to_text(&row, 6, 3), "      \n  ab  \n      ");
+    }
+
+    #[test]
+    fn a_spacer_leaves_blank_cells_where_it_is_added() {
+        let row = Flex::row()
+            .child(Text::new("a"))
+            .spacer(3)
+            .child(Text::new("b"))
+            .child(Text::new("c"));
+        assert_eq!(render_to_text(&row, 6, 1), "a   bc");
+        assert_eq!(row.default_width(), 6);
+
+        let column = Flex::column()
+            .child(Text::new("a"))
+            .spacer(2)
+            .child(Text::new("b"));
+        assert_eq!(render_to_text(&column, 1, 4), "a\n \n \nb");
+        assert_eq!(column.default_height(), 4);
+    }
+
+    #[test]
+    fn a_spacer_takes_no_room_across_the_direction() {
+        let column = Flex::column().child(Text::new("ab")).spacer(9);
+        assert_eq!(column.default_width(), 2);
+
+        let row = Flex::row().child(Text::new("ab")).spacer(9);
+        assert_eq!(row.default_height(), 1);
+        assert_eq!(row.height_for_width(20), 1);
     }
 }

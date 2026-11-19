@@ -1,23 +1,39 @@
-use std::str::Bytes;
-
+/// A GIF file split into its blocks, with each frame's pixels still LZW-compressed.
 pub struct RawGif {
+    /// The logical screen's width in pixels.
     pub width: u16,
+    /// The logical screen's height in pixels.
     pub height: u16,
+    /// The palette frames use when they have none of their own, as RGB triples.
     pub global_color_table: Vec<(u8, u8, u8)>,
+    /// The image frames, in file order.
     pub frames: Vec<GifFrame>,
 }
 
+/// One image frame of a [`RawGif`].
 pub struct GifFrame {
+    /// Column of the frame's left edge on the logical screen.
     pub left: u16,
+    /// Row of the frame's top edge on the logical screen.
     pub top: u16,
+    /// The frame's width in pixels.
     pub width: u16,
+    /// The frame's height in pixels.
     pub height: u16,
+    /// Whether the frame carries a palette of its own.
     pub has_local_color_table: bool,
+    /// The frame's own palette, empty unless it has one.
     pub local_color_table: Vec<(u8, u8, u8)>,
+    /// The frame's pixel data, still LZW-compressed.
     pub compressed_pixels: Vec<u8>,
 }
 
 impl RawGif {
+    /// Splits `bytes` into the GIF's screen size, palette and frames.
+    ///
+    /// # Errors
+    ///
+    /// Fails if `bytes` is not a GIF or ends partway through its header or a frame header.
     pub fn parse(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.len() < 13 {
             return Err("File too short");
@@ -61,7 +77,7 @@ impl RawGif {
                     if cursor >= bytes.len() {
                         break;
                     }
-                    let ext_label = bytes[cursor];
+                    // The extension's label byte; every kind is skipped the same way.
                     cursor += 1;
 
                     // Skip extension sub-blocks

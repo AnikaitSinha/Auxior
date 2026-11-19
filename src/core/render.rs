@@ -1,4 +1,4 @@
-use super::{Area, Buffer};
+use super::{AppEvent, Area, Buffer};
 
 /// Statistics about one frame sent to the terminal, for tuning and debugging.
 #[derive(Debug, Clone, Default)]
@@ -30,6 +30,8 @@ pub struct RenderContext<'a> {
     pub dirty_regions: Vec<Area>,
     /// Compare every cell, ignoring the dirty regions.
     pub force_full: bool,
+    // Whether a widget used each of this frame's events, by index.
+    handled: Vec<bool>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -39,7 +41,58 @@ impl<'a> RenderContext<'a> {
             previous,
             dirty_regions: Vec::new(),
             force_full: false,
+            handled: Vec::new(),
         }
+    }
+
+    // Records which of this frame's events widgets used.
+    pub(crate) fn set_handled(&mut self, handled: Vec<bool>) {
+        self.handled = handled;
+    }
+
+    /// Whether a widget used `events[index]`: a key a focused [`Input`](crate::Input) typed, a
+    /// key a [`Button`](crate::Button) is bound to, Tab moving focus, or a click or a wheel
+    /// turn that landed on something.
+    ///
+    /// Input reaches widgets before the frame callback runs, and the callback still receives
+    /// every event, so an app's own shortcuts should ignore the ones a widget has already
+    /// used. Otherwise typing `q` into a field would also run the app's `q` shortcut.
+    /// [`unhandled`](RenderContext::unhandled) is usually easier.
+    ///
+    /// An index past the end, or a context that did not come from
+    /// [`App::run`](crate::App::run), reports `false`.
+    pub fn is_handled(&self, index: usize) -> bool {
+        self.handled.get(index).copied().unwrap_or(false)
+    }
+
+    /// The events in `events` that no widget used, in order, for an app's own shortcuts.
+    ///
+    /// Pass the events the frame callback received:
+    ///
+    /// ```no_run
+    /// use auxior::{App, AppConfig, AppEvent, ControlFlow, KeyBinding};
+    ///
+    /// let mut app = App::with_config(AppConfig::new())?;
+    /// app.run(|buf, _previous, events, ctx, _stats| {
+    ///     for event in ctx.unhandled(events) {
+    ///         // Not reached while a focused field is typing the `r` itself.
+    ///         if let AppEvent::Key(key) = event {
+    ///             if KeyBinding::from('r').matches(key) {
+    ///                 // refresh
+    ///             }
+    ///         }
+    ///     }
+    ///     ControlFlow::Continue
+    /// })?;
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
+    pub fn unhandled<'e>(&self, events: &'e [AppEvent]) -> impl Iterator<Item = &'e AppEvent> {
+        let handled = self.handled.clone();
+        events
+            .iter()
+            .enumerate()
+            .filter(move |(index, _)| !handled.get(*index).copied().unwrap_or(false))
+            .map(|(_, event)| event)
     }
 
     /// Marks `area` as redrawn this frame. Empty areas are ignored.
@@ -247,5 +300,23 @@ mod tests {
         let coords = ctx.diff_coords(&current);
         assert_eq!(coords, vec![(0, 0), (3, 0), (1, 1), (2, 2)]);
         assert!(coords.is_sorted_by_key(|&(x, y)| (y, x)));
+    }
+
+    #[test]
+    fn unhandled_skips_the_events_widgets_used() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let previous = Buffer::new(1, 1);
+        let mut ctx = RenderContext::new(&previous);
+        let key = |ch| AppEvent::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        let events = [key('a'), key('b'), key('c')];
+
+        // Nothing recorded, as for a context made by hand: every event is unused.
+        assert_eq!(ctx.unhandled(&events).count(), 3);
+
+        ctx.set_handled(vec![true, false, true]);
+        assert_eq!(ctx.unhandled(&events).collect::<Vec<_>>(), [&events[1]]);
+        assert!(ctx.is_handled(0) && !ctx.is_handled(1));
+        assert!(!ctx.is_handled(99));
     }
 }

@@ -36,9 +36,11 @@ so the callback always sees at least one event.
 
 ## Quit keys
 
-Before anything else, the batch is checked against the quit keys set with
-[`AppConfig::quit_key`](crate::AppConfig::quit_key). If any event matches, `run`
-returns straight away: that frame is not drawn and no handler runs.
+The batch is checked against the quit keys set with
+[`AppConfig::quit_key`](crate::AppConfig::quit_key) as it is routed. A quit key
+that the focused widget uses, such as a `q` typed into a focused field, is just a
+key. Any other quit key makes `run` return straight away: that frame is not drawn,
+the rest of the batch is not routed, and no app-wide binding runs for it.
 
 There are no quit keys unless you add them. That is deliberate: a library that
 quietly takes `q` makes it impossible to build a text editor. Call

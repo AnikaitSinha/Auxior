@@ -51,9 +51,10 @@
 //!
 //! - Running an app: [`App`], [`AppConfig`], [`AppEvent`], [`ControlFlow`]
 //! - Drawing: [`Buffer`], [`Canvas`], [`Area`], [`Cell`], [`Color`]
-//! - Layout: [`Div`], [`Flex`], [`Grid`], [`ScrollView`]
-//! - Content: [`Text`], [`Markdown`], [`Button`], [`Input`], [`Bar`], [`ScrollGraph`],
-//!   [`Image`]
+//! - Layout: [`Div`], [`Flex`], [`Grid`], [`ScrollView`], and [`Overlay`] for dialogs drawn
+//!   over the screen
+//! - Content: [`Text`] (with [`Span`]s for mixed styles), [`Markdown`], [`Button`], [`Input`],
+//!   [`Bar`], [`ScrollGraph`], [`LineChart`], [`Image`]
 //! - Composites: [`List`], [`Table`], [`StatusBar`], [`SparklineGraph`]
 //! - Input: [`KeyBinding`], [`Focus`], and mouse events through [`AppConfig::mouse_capture()`]
 //! - Your own widgets: implement [`Widget`]
@@ -85,9 +86,9 @@ pub use core::{
 pub use widgets::{
     Align, AlignItems, Animation, AnimationState, Bar, BorderAlign, BorderChars, BorderSide,
     BorderSides, BorderStyle, Button, Direction, Div, DivOptions, Filter, Fit, Flex, FlexDirection,
-    Grid, Heading, Image, Input, InputState, Justify, LayoutOptions, Margin, Markdown, Picture,
-    PixelMode, Repeat, ScrollGraph, ScrollState, ScrollView, Spinner, SpinnerStyle, Tabs,
-    TabsState, Text, Toast, ToastState, Widget,
+    Grid, Heading, Image, Input, InputState, Justify, LayoutOptions, LineChart, Margin, Markdown,
+    Overlay, Picture, PixelMode, Reference, Repeat, ScrollGraph, ScrollState, ScrollView, Series,
+    Span, Spinner, SpinnerStyle, Tabs, TabsState, Text, Toast, ToastState, Widget,
 };
 
 pub use media::{GifFrame, RawGif};

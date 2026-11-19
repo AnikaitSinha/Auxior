@@ -126,17 +126,14 @@ app.run(|buf, _previous, _events, ctx, _stats| {
 # Ok::<(), std::io::Error>(())
 ```
 
-Tab moves between the two fields; `q` and `Esc` quit, since those keys only
-reach the application when no field is focused... in fact they reach it always,
-because quit keys are checked before anything else. Give an app with text fields
-a quit key that can't be typed, such as `Ctrl+C`:
+Tab moves between the two fields. `Esc` quits, and so does `q` — except while a
+field is focused, when the field takes the `q` and types it: a quit key goes to
+the focused widget first. For the same reason, an app's own shortcuts should look
+at [`ctx.unhandled(events)`](crate::RenderContext::unhandled) rather than every
+event, so a key typed into a field doesn't also fire them.
 
-```rust
-use auxior::{AppConfig, KeyBinding, KeyCode};
-
-let config = AppConfig::new().quit_key(KeyBinding::ctrl(KeyCode::Char('c')));
-# let _ = config;
-```
+While the field is empty and focused, the cursor underlines the first character of
+the placeholder rather than covering it.
 
 ## Notes
 

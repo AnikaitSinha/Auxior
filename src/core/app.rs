@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 
 use super::{
-    Buffer, Cursor, FrameStats, KeyBinding, RenderContext, Terminal, begin_frame, dispatch_input,
+    Buffer, Cursor, FrameStats, KeyBinding, RenderContext, Terminal, begin_frame, dispatch_events,
 };
 
 /// Options for an [`App`]: frame rate, quit keys and mouse capture.
@@ -24,6 +24,10 @@ pub struct AppConfig {
     pub target_fps: u64,
     /// Keys that end [`App::run`] before the frame callback sees them. Empty by default, so the
     /// application receives every key.
+    ///
+    /// A focused widget that uses the key gets it instead, so typing `q` into a focused
+    /// [`Input`](crate::Input) types a `q` rather than quitting. App-wide bindings, such as a
+    /// [`Button`](crate::Button)'s key, never see a quit key.
     pub quit_keys: Vec<KeyBinding>,
     /// Whether the terminal reports mouse events. See [`AppConfig::mouse_capture()`].
     pub mouse_capture: bool,
@@ -117,6 +121,7 @@ impl AppConfig {
         Duration::from_secs(1) / self.target_fps.max(1) as u32
     }
 
+    #[cfg(test)]
     fn is_quit_key(&self, event: &AppEvent) -> bool {
         let AppEvent::Key(key) = event else {
             return false;
@@ -276,15 +281,15 @@ impl App {
                 std::mem::take(&mut pending_events)
             };
 
-            if frame_events.iter().any(|e| self.config.is_quit_key(e)) {
-                break;
-            }
-
             // Route input against the bindings, regions and focus order of the
             // frame that was on screen when the user acted, before rendering
             // replaces them, so a handler's effect shows up in the frame
-            // rendered below.
-            dispatch_input(&frame_events);
+            // rendered below. A quit key a focused widget does not take ends the
+            // loop here.
+            let dispatched = dispatch_events(&frame_events, &self.config.quit_keys);
+            if dispatched.quit {
+                break;
+            }
             begin_frame();
 
             // let mut control = ControlFlow::Continue;
@@ -304,6 +309,7 @@ impl App {
             }
 
             let mut ctx = RenderContext::new(&self.previous);
+            ctx.set_handled(dispatched.handled);
             // The whole screen is compared unless the application asked for
             // incremental drawing, so a widget drawn without marking its area
             // still reaches the terminal. Comparing cells is cheap; sending them

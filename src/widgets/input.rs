@@ -599,10 +599,20 @@ impl Widget for Input {
             // The cursor sits on the character it would push along, or just
             // past the end of the text.
             let before = text[..cursor.min(text.len())].chars().count();
-            let at = shown.chars().nth(before).unwrap_or(' ');
+            // An empty field underlines the placeholder's first character instead, in the
+            // placeholder's grey, so the hint is not cut short by the cursor.
+            let placeholder_start = self
+                .placeholder
+                .as_deref()
+                .filter(|_| text.is_empty())
+                .and_then(|placeholder| placeholder.chars().next());
+            let cell = match placeholder_start {
+                Some(ch) => Cell::with_fg(ch, Color::DarkGrey),
+                None => Cell::with_fg(shown.chars().nth(before).unwrap_or(' '), self.fg),
+            };
             let column = cursor_column.saturating_sub(scroll);
             if column < field {
-                canvas.set(column, 0, Cell::with_fg(at, self.fg).set_underline());
+                canvas.set(column, 0, cell.set_underline());
                 // The terminal's own cursor goes to the same cell, so it blinks where typing
                 // will land and the terminal knows where the caret is. The underline stays
                 // as well, for terminals that are set never to show a cursor.
@@ -885,6 +895,21 @@ mod tests {
         frame(&mut buf, &[key(KeyCode::Tab)], draw);
         frame(&mut buf, &typed("ada"), draw);
         assert_eq!(row(&buf), "ada");
+    }
+
+    #[test]
+    fn the_cursor_in_an_empty_field_keeps_the_placeholder_whole() {
+        Focus::clear();
+        let state = InputState::new();
+        Focus::set(state.focus_id());
+        let mut buf = Buffer::new(12, 1);
+        let draw = |canvas: &mut Canvas| Input::text(&state).placeholder("name").render(canvas);
+
+        frame(&mut buf, &[], draw);
+        assert_eq!(row(&buf), "name");
+        let first = buf.get(0, 0).unwrap();
+        assert!(first.u, "the cursor underlines the first character");
+        assert_eq!(first.fg, Color::DarkGrey);
     }
 
     #[test]
