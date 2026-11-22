@@ -110,6 +110,7 @@ pub struct Bar {
     fill: f32,
     start_color: Color,
     end_color: Color,
+    ch: char,
 }
 
 impl Bar {
@@ -122,7 +123,21 @@ impl Bar {
             fill: 1.0,
             start_color: Color::Rgb { r: 255, g: 0, b: 0 },
             end_color: Color::Rgb { r: 0, g: 255, b: 0 },
+            ch: '■',
         }
+    }
+
+    /// Sets the character every cell of the bar is drawn with, filled or not. Defaults to `■`.
+    ///
+    /// ```
+    /// use auxior::Bar;
+    /// use auxior::testing::render_to_text;
+    ///
+    /// assert_eq!(render_to_text(&Bar::new().char('█').width(4), 4, 1), "████");
+    /// ```
+    pub fn char(mut self, ch: char) -> Self {
+        self.ch = ch;
+        self
     }
 
     /// Sets which edge the bar fills from. Defaults to [`Direction::Right`].
@@ -237,7 +252,7 @@ impl Widget for Bar {
                 self.bg
             };
 
-            let cell = Cell::with_fg('■', color);
+            let cell = Cell::with_fg(self.ch, color);
             for other in 0..across {
                 let (x, y) = if self.direction.is_horizontal() {
                     (step, other)
@@ -353,6 +368,14 @@ mod tests {
         assert_eq!(filled(Direction::Left, 4, 1), [(2, 0), (3, 0)]);
         assert_eq!(filled(Direction::Down, 1, 4), [(0, 0), (0, 1)]);
         assert_eq!(filled(Direction::Up, 1, 4), [(0, 2), (0, 3)]);
+    }
+
+    #[test]
+    fn the_character_can_be_changed() {
+        let buf = render_bar(&Bar::new().char('=').fill(0.5), 4, 1);
+        for x in 0..4 {
+            assert_eq!(buf.get(x, 0).unwrap().ch, '=');
+        }
     }
 
     #[test]
